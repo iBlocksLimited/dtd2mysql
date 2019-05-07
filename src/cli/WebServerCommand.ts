@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const stream = require("stream");
 const AWS = require("aws-sdk");
+const moment = require("moment");
 
 export class WebServerCommand implements CLICommand {
   constructor(
@@ -30,14 +31,15 @@ export class WebServerCommand implements CLICommand {
       if (!inProgress) {
         inProgress = true;
         res.writeProcessing();
-
-        let startRange = req.query["start"];
-        let endRange = req.query["end"];
+        
+        let startRange = moment(req.query["start"], "YYYY-MM-DD");
+        let endRange = moment(req.query["end"], "YYYY-MM-DD");
         let excludeFixedLinks: boolean = req.query["excludeFixedLinks"] == "true"
         let excludeVstpSchedules: boolean =  req.query["excludeVstpSchedules"] == "true"
+
         fileName =
           req.query["filename"] || `gtfs-${startRange}-${endRange}.zip`;
-        if (!(startRange && endRange)) {
+        if (!(startRange.isValid() && endRange.isValid())) {
           res.sendStatus(400);
           inProgress = false;
           return;
