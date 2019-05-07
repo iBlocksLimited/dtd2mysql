@@ -129,7 +129,8 @@ export class Container {
     output: GTFSOutput,
     startRange,
     endRange,
-    excludeFixedLinks: boolean = false
+    excludeFixedLinks: boolean = false,
+    excludeVstpSchedules: boolean = false
   ): OutputGTFSCommand {
     return new OutputGTFSCommand(
       new CIFRepository(
@@ -138,7 +139,8 @@ export class Container {
         stationCoordinates,
         startRange,
         endRange,
-        excludeFixedLinks
+        excludeFixedLinks,
+        excludeVstpSchedules
       ),
       output
     );
@@ -158,12 +160,13 @@ export class Container {
     return new OutputGTFSZipCommand(await this.getOutputGTFSCommand());
   }
   async getGtfsServerCommand(): Promise<CLICommand> {
-    return new WebServerCommand((startRange, endRange, excludeFixedLinks) =>
+    return new WebServerCommand((startRange, endRange, excludeFixedLinks, excludeVstpSchedules) =>
       this.getOutputGTFSCommandWithOutput(
         new FileOutput(),
         startRange,
         endRange,
-        excludeFixedLinks
+        excludeFixedLinks,
+        excludeVstpSchedules
       )
     );
   }
