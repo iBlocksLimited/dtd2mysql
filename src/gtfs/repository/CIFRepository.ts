@@ -115,11 +115,11 @@ WHERE
 	(sloc.schedule_location_id IS NULL OR (loc.crs_code IS NOT NULL AND loc.crs_code != "") )
 	AND s.wef_date < ?
   AND s.weu_date >= ?
-  AND (s.import_weu_date IS NULL OR (s.import_weu_date > ?) )
+  AND (s.import_weu_date IS NULL OR (s.import_weu_date > ?) ) AND (s.schedule_type != 'VSTP' OR ?)
   
   HAVING runs_to >= runs_from
 ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
-      `, [this.endRange, this.startRange, this.startRange]);
+      `, [this.endRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD"), !this.excludeVstpSchedules]);
       await Promise.all([
       scheduleBuilder.loadSchedules(query),
       // scheduleBuilder.loadSchedules(this.stream.query(`
@@ -169,7 +169,7 @@ ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
      AND a.weu_date >= ?
      AND (loc.crs_code IS NOT NULL AND loc.crs_code != "")
      ORDER BY a.stp_indicator DESC, a.association_id;
-    `, [this.endRange, this.startRange]);
+    `, [this.endRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD")]);
     console.log("Assosiation size:" ,results.length)
     return results.map(row => new Association(
       row.id,
