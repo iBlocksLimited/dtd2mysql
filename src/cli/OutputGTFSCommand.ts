@@ -12,6 +12,8 @@ import {GTFSOutput} from "../gtfs/output/GTFSOutput";
 import * as fs from "fs";
 import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
 import streamToPromise = require("stream-to-promise");
+import {Calendar} from "../gtfs/file/Calendar";
+import {CalendarDate} from "../gtfs/file/CalendarDate";
 
 export class OutputGTFSCommand implements CLICommand {
   public baseDir: string;
@@ -31,19 +33,19 @@ export class OutputGTFSCommand implements CLICommand {
       throw new Error(`Output path ${this.baseDir} does not exist.`);
     }
 
-    const associationsP = this.repository.getAssociations();
-    const scheduleResultsP = this.repository.getSchedules();
-    const transfersP = this.copy(this.repository.getTransfers(), "transfers.txt");
-    const stopsP = this.copy(this.repository.getStops(), "stops.txt");
-    const agencyP = this.copy(agencies, "agency.txt");
-    const fixedLinksP = this.copy(this.repository.getFixedLinks(), "links.txt");
+    const associationsP:Promise<Association[]> = this.repository.getAssociations();
+    const scheduleResultsP:Promise<ScheduleResults> = this.repository.getSchedules();
+    const transfersP:Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
+    const stopsP:Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
+    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
+    const fixedLinksP:Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
     
-    const schedules = this.getSchedules(await associationsP, await scheduleResultsP);
-    const [calendars, calendarDates, serviceIds] = createCalendar(schedules);
+    const schedules:Schedule[] = this.getSchedules(await associationsP, await scheduleResultsP);
+    const [calendars, calendarDates, serviceIds]:[Calendar[], CalendarDate[], ServiceIdIndex] = createCalendar(schedules);
 
-    const calendarP = this.copy(calendars, "calendar.txt");
-    const calendarDatesP = this.copy(calendarDates, "calendar_dates.txt");
-    const tripsP = this.copyTrips(schedules, serviceIds);
+    const calendarP:Promise<void> = this.copy(calendars, "calendar.txt");
+    const calendarDatesP:Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
+    const tripsP:Promise<void> = this.copyTrips(schedules, serviceIds);
 
     await Promise.all([
       agencyP,
