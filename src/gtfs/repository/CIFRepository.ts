@@ -22,13 +22,10 @@ export class CIFRepository {
     private readonly stationCoordinates: StationCoordinates,
     private readonly startRange,
     private readonly endRange,
-    private readonly _excludeFixedLinks: boolean = false,
+    private readonly excludeFixedLinks: boolean = false,
     private readonly excludeVstpSchedules: boolean = false,
   ) {}
 
-  get excludeFixedLinks() {
-    return this._excludeFixedLinks;
-  }
 
   /**
    * Return the interchange time between each station
@@ -85,52 +82,44 @@ export class CIFRepository {
    */
   public async getSchedules(): Promise<ScheduleResults> {
     const scheduleBuilder = new ScheduleBuilder();
-    // If the excludeFixedLinks flag is true, we add the exclude VSTP schedules condition to the query. 
-    let excludeVstpCondition: string = this.excludeVstpSchedules == true ? "AND s.schedule_type != 'VSTP'" : "";
-
-    const sqlQuery = `
-    SELECT 
-    s.schedule_id as id,
-    s.train_uid, 
-    e.rsid as retail_train_id, 
-    greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date)) as runs_from, 
-    least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date)) as runs_to,
-
-    SUBSTRING(s.valid_days, 1, 1 ) as monday,
-    SUBSTRING(s.valid_days, 2, 1 ) as tuesday,
-    SUBSTRING(s.valid_days, 3, 1 ) as wednesday,
-    SUBSTRING(s.valid_days, 4, 1 ) as thursday,
-    SUBSTRING(s.valid_days, 5, 1 ) as friday,
-    SUBSTRING(s.valid_days, 6, 1 ) as saturday,
-    SUBSTRING(s.valid_days, 7, 1 ) as sunday,
-
-    loc.crs_code as crs_code, s.stp_indicator as stp_indicator,
-    sloc.public_arrival_time, sloc.public_departure_time,
-    IF(s.train_status="S", "SS", s.train_category) AS train_category, 
-    IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time) AS scheduled_arrival_time, 
-    IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time) AS scheduled_departure_time,
-    sloc.platform, e.atoc_code, sloc.schedule_location_id AS stop_id, 
-    COALESCE(sloc.activity, "") as activity, s.reservations, s.train_class
-
-    FROM cif_schedule as s 
-
-    LEFT JOIN cif_schedule_extra as e
-      ON e.schedule_id = s.schedule_id
-    LEFT JOIN cif_schedule_location as sloc
-      ON sloc.schedule_id = s.schedule_id
-    LEFT JOIN master_location as loc
-      ON sloc.tiploc = loc.tiploc
-      
-    WHERE 
-      (sloc.schedule_location_id IS NULL OR (loc.crs_code IS NOT NULL AND loc.crs_code != "") )
-      AND s.wef_date < '${this.endRange}'
-      AND s.weu_date >= '${this.startRange}'
-      AND (s.import_weu_date IS NULL OR (s.import_weu_date > '${this.startRange}') ) ${excludeVstpCondition}
-      
-      HAVING runs_to >= runs_from
-    ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
-    `
-    const query = this.stream.query(sqlQuery);
+    const query = this.stream.query(`
+      SELECT 
+ s.schedule_id as id,
+ s.train_uid, 
+ e.rsid as retail_train_id, 
+ greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date)) as runs_from, 
+ least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date)) as runs_to,
+SUBSTRING(s.valid_days, 1, 1 ) as monday,
+SUBSTRING(s.valid_days, 2, 1 ) as tuesday,
+SUBSTRING(s.valid_days, 3, 1 ) as wednesday,
+SUBSTRING(s.valid_days, 4, 1 ) as thursday,
+SUBSTRING(s.valid_days, 5, 1 ) as friday,
+SUBSTRING(s.valid_days, 6, 1 ) as saturday,
+SUBSTRING(s.valid_days, 7, 1 ) as sunday,
+loc.crs_code as crs_code, s.stp_indicator as stp_indicator,
+sloc.public_arrival_time, sloc.public_departure_time,
+IF(s.train_status="S", "SS", s.train_category) AS train_category, 
+IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time) AS scheduled_arrival_time, 
+IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time) AS scheduled_departure_time,
+sloc.platform, e.atoc_code, sloc.schedule_location_id AS stop_id, 
+COALESCE(sloc.activity, "") as activity, s.reservations, s.train_class
+FROM cif_schedule as s 
+LEFT JOIN cif_schedule_extra as e
+	ON e.schedule_id = s.schedule_id
+LEFT JOIN cif_schedule_location as sloc
+	ON sloc.schedule_id = s.schedule_id
+LEFT JOIN master_location as loc
+	ON sloc.tiploc = loc.tiploc
+	
+WHERE 
+	(sloc.schedule_location_id IS NULL OR (loc.crs_code IS NOT NULL AND loc.crs_code != "") )
+	AND s.wef_date < ?
+  AND s.weu_date >= ?
+  AND (s.import_weu_date IS NULL OR (s.import_weu_date > ?) )
+  
+  HAVING runs_to >= runs_from
+ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
+      `, [this.endRange, this.startRange, this.startRange]);
       await Promise.all([
       scheduleBuilder.loadSchedules(query),
       // scheduleBuilder.loadSchedules(this.stream.query(`
@@ -208,6 +197,12 @@ export class CIFRepository {
    * Return the ALF information
    */
   public async getFixedLinks(): Promise<FixedLink[]> {
+    const results: FixedLink[] = [];
+    // If excludeFixedLinks flag is set to true, we will return empty FixedLink here. 
+    if(this.excludeFixedLinks) {
+      return results;
+    }
+
     // use the additional fixed links if possible and fill the missing data with fixed_links
     const [rows] = await this.db.query<FixedLinkRow>(`
       SELECT
@@ -227,8 +222,6 @@ export class CIFRepository {
         SELECT CONCAT(origin, destination) FROM additional_fixed_link
       )
     `);
-
-    const results: FixedLink[] = [];
 
     for (const row of rows) {
       results.push(this.getFixedLinkRow(row.origin, row.destination, row));
