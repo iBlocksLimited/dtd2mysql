@@ -115,7 +115,7 @@ export class OutputGTFSCommand implements CLICommand {
     console.log("schedule overlays: ", scheduleResults.schedules.length);
     const processedSchedules = <ScheduleIndex>applyOverlays(scheduleResults.schedules, scheduleResults.idGenerator);
     const associatedSchedules = applyAssociations(processedSchedules, processedAssociations, scheduleResults.idGenerator);
-    console.log("merge schedules", associatedSchedules.length)
+    console.log("merge schedules", Object.keys(associatedSchedules).length)
     const mergedSchedules = <Schedule[]>mergeSchedules(associatedSchedules);
     const schedules = addLateNightServices(mergedSchedules, scheduleResults.idGenerator);
 

@@ -21,6 +21,7 @@ import {downloadUrl} from "../../config/nfm64";
 import {DownloadFileCommand} from "./DownloadFileCommand";
 import {PromiseSFTP} from "../sftp/PromiseSFTP";
 import {WebServerCommand} from "./WebServerCommand";
+import moment = require("moment");
 
 export class Container {
   @memoize
@@ -150,8 +151,8 @@ export class Container {
   private async getOutputGTFSCommand(): Promise<OutputGTFSCommand> {
     return this.getOutputGTFSCommandWithOutput(
       new FileOutput(),
-      new Date(new Date().setMonth(new Date().getMonth() - 3)),
-      new Date(new Date().setMonth(new Date().getMonth() + 1))
+      moment(new Date().setMonth(new Date().getMonth() - 3)).subtract(1, 'days'),
+      moment(new Date().setMonth(new Date().getMonth() + 1)).subtract(1, 'days')
     );
   }
 
