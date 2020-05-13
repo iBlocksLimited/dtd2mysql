@@ -58,12 +58,12 @@ export class WebServerCommand implements CLICommand {
         let baseDir = gtfsCommand.baseDir;
         // const archive = archiver("zip", {zlib: {level: 9}});
 
-        execSync(`zip -j ${fileName} ${baseDir}/*.txt`);
+        execSync(`zip -j tmp.zip ${baseDir}/*.txt`);
         // temporarily use the linux built-in zip, rather than doing it in node
         // This is due to the fact that `gtfs-stream` library that Raptor uses breaks on a streamed zip, if the compressed data contains 
         // a certain set of characters
 
-        const passthrough = fs.createReadStream(fileName);
+        const passthrough = fs.createReadStream("tmp.zip");
         passthrough.on("data", () => {
           res.writeProcessing();
         });
@@ -90,7 +90,7 @@ export class WebServerCommand implements CLICommand {
               });
             }
           });
-          fs.unlinkSync(fileName);
+          fs.unlinkSync("tmp.zip");
           inProgress = false;
         });
       } else {
