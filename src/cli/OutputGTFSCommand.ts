@@ -11,9 +11,13 @@ import {ScheduleResults} from "../gtfs/repository/ScheduleBuilder";
 import {GTFSOutput} from "../gtfs/output/GTFSOutput";
 import * as fs from "fs";
 import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
-import streamToPromise = require("stream-to-promise");
 import {Calendar} from "../gtfs/file/Calendar";
 import {CalendarDate} from "../gtfs/file/CalendarDate";
+
+const util = require('util');
+const stream = require('stream');
+const finished = util.promisify(stream.finished);
+
 
 export class OutputGTFSCommand implements CLICommand {
   public baseDir: string;
@@ -71,7 +75,7 @@ export class OutputGTFSCommand implements CLICommand {
     rows.forEach(row => output.write(row));
     output.end();
 
-    return streamToPromise(output);
+    return finished(output);
   }
 
   /**
@@ -103,9 +107,9 @@ export class OutputGTFSCommand implements CLICommand {
     routeFile.end();
 
     return Promise.all([
-      streamToPromise(trips),
-      streamToPromise(stopTimes),
-      streamToPromise(routeFile),
+      finished(trips),
+      finished(stopTimes),
+      finished(routeFile),
     ]);
   }
 
