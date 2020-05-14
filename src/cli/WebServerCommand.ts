@@ -15,6 +15,12 @@ export class WebServerCommand implements CLICommand {
     private gtfsCommandSupplier: (startRange, endRange, excludeFixedLinks, excludeVstpSchedules) => OutputGTFSCommand
   ) {}
 
+    waitForSeconds(seconds) {
+      return new Promise((res) => {
+        setTimeout(res, seconds * 1000)
+      })
+    }
+
   async run(argv: string[]) {
     if (!(argv[3] && argv[4])) {
       console.log(
@@ -57,6 +63,8 @@ export class WebServerCommand implements CLICommand {
         await gtfsCommand.run(argv);
         let baseDir = gtfsCommand.baseDir;
         // const archive = archiver("zip", {zlib: {level: 9}});
+        // Mega-bodge until I figure out when the underlying node event `finish` is called, and figure out when the file descriptor is released
+        await this.waitForSeconds(10);
 
         execSync(`zip -j tmp.zip ${baseDir}/*.txt`);
         // temporarily use the linux built-in zip, rather than doing it in node
