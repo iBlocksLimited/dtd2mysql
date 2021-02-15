@@ -1,10 +1,10 @@
 #  F-3457 Notes
 
-+ [GTFS Data](#GTFS data)<br>
-+ [Current GTFS Exporter](#Current GTFS Exporter)<br>
-+ [Realtime GTFS Exporter](#Realtime GTFS Exporter)<br>
++ [GTFS Data](#GTFS-data)<br>
++ [Current GTFS Exporter](#Current-GTFS-Exporter)<br>
++ [Realtime GTFS Exporter](#Realtime-GTFS-Exporter)<br>
 + [Examples](#Examples)<br>
-+ [Next Step](#Next Step)<br>
++ [Next Step](#Next-Step)<br>
 + [Queries](#Queries)<br>
 
 ---
@@ -137,7 +137,7 @@ There is a detailed explanation of how dtd2mysql GTFS exporter works written by 
 ### Retrieve CIF schedule data
 
 All schedule data are retrieved from `cif_schedule` and `cif_schedule_location` tables from the Delay Repay database:
-[Original GetSchedule query](#Original GetSchedule query).
+[Original GetSchedule query](#Original-GetSchedule-query).
 
 The exporter will use public arrival/departure times if they are present, or it will fallback to use scheduled arrival/departure times
 and convert them into the `arrival_time` and `departure_time` in `stop_times.txt`.
@@ -146,7 +146,7 @@ and convert them into the `arrival_time` and `departure_time` in `stop_times.txt
 ## Realtime GTFS Exporter
 
 ### Overview
-In Jack and Ed's realtime GTFS exporter, the major update is around the GetSchedule query: [Realtime GetSchedule query](#Realtime GetSchedule Query).
+In Jack and Ed's realtime GTFS exporter, the major update is around the GetSchedule query: [Realtime GetSchedule query](#Realtime-GetSchedule-Query).
 They use the `TrainUID` to link a `cif_schedule` entry to a `train_activation` entry, and then link the activation event to a `train_movement` entry,
 the actual arrival/departure time (realtime) can be obtained from the movement event. In a single schedule, if the actual
 arrival/departure time is missing from the movement event, the exporter will fallback to use public/scheduled time.
