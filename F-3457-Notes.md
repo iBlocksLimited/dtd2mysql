@@ -16,7 +16,8 @@ Required files for RAPTOR:
 
 * **agency.txt**: train company's information.
 
-* **transfers.txt**: Same station transfer time information.
+* **transfers.txt**: Same station transfer time information. 
+    * Could create a converter to convert this data into OSN format transfer data as a backup plan? 
 
 * **links.txt**: fixed links information. (Empty)
 
@@ -151,6 +152,9 @@ They use the `TrainUID` to link a `cif_schedule` entry to a `train_activation` e
 the actual arrival/departure time (realtime) can be obtained from the movement event. In a single schedule, if the actual
 arrival/departure time is missing from the movement event, the exporter will fallback to use public/scheduled time.
 
+The delay repay TRUST data importer will insert an estimated actual arrival/departure time in case one of these events are missing, 
+therefore in theory a fallback shouldn't happen very often in realtime GTFS exporter. 
+
 After all the schedule data have been retrieved, the afterwards procedures (applying overlay, split/join associations, etc.)
 stay unchanged.
 
@@ -162,7 +166,6 @@ times have been improved to use the actual locations and times.
 * Logic issue with supporting multiple days
 
 The exporter does not have logic to handle different stop times for a single cif_schedule.
-
 
 * Running time
 
@@ -232,8 +235,8 @@ select * from cif_schedule s where s.train_uid = 'L86691';
           the different in the stop pattern (completely missing several stations) or completely missing of TrainUID+service record.
 
 * Early Javelin run to compare JG result based on CIF GTFS data and realtime GTFS data.
-#### If We need a better realtime solution
-* Consider Delay Repay's TRUST+Darwin solution.
+#### If We need a better realtime GTFS exporter
+* Could consult Delay Repay's TRUST+Darwin solution as a starting point.
     * Maybe consider writing the exporter in Java.
 
 ---
