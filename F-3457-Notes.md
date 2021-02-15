@@ -220,13 +220,21 @@ select * from cif_schedule s where s.train_uid = 'L86691';
 ## Next Step
 
 #### If CIF+TRUST solution is acceptable
-* Update GTFS data exporter to generate a calendar date per train activation date.
+* Update GTFS exporter to handle multiple trainUID+service per cif schedule,
+    * Calculate the average arrival/departure time (probably not ideal).
+    * Update GTFS data exporter to generate a calendar date per train activation date.
+* Optimise query running time to cope with generating 14 days of data.    
+    * In current realtime GetSchedule query, the train activation is linked to ALL cif schedules that has the same TrainUID, this is not necessary.
 * Write Python script to thoroughly examine the realtime GTFS data, compare with CIF GTFS data.
-* Optimise query running time to cope with generating 14 days of data.
-* Javelin run (?) compare JG result based on CIF GTFS data and realtime GTFS data.
+    * The script should gather all unique trainUID+service for each day from CIF based GTFS data and realtime based GTFS data, 
+      find the stop pattern in the `stop_time.txt` for each combination and compare them.
+        * The stop time will be slightly different (could pass in a tolerable offset), the script should focus on detecting
+          the different in the stop pattern (completely missing several stations) or completely missing of TrainUID+service record.
+
+* Early Javelin run to compare JG result based on CIF GTFS data and realtime GTFS data.
 #### If We need a better realtime solution
 * Consider Delay Repay's TRUST+Darwin solution.
-* Maybe consider writing the exporter in Java.
+    * Maybe consider writing the exporter in Java.
 
 ---
 ## Queries
