@@ -161,7 +161,7 @@ times have been improved to use the actual locations and times.
 
 * Logic issue with supporting multiple days
 
-The exporter does not have specific logic to handle different stop times for 1 1 cif_schedule.
+The exporter does not have logic to handle different stop times for a single cif_schedule.
 
 
 * Running time
