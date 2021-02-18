@@ -74,8 +74,7 @@ export class CIFRepository {
   /**
    * Return the schedules and z trains. These queries probably require some explanation:
    *
-   * The first query selects the stop times for all passenger services between now and + 3 months. It's important that
-   * the stop time location is mapped to physical stations to avoid getting fake CRS codes from the tiploc data.
+   * The first query selects the real stop times for all passenger services for the specified day, excluding offroutes.
    *
    * The second query selects all the z-trains (usually replacement buses) within three months. They already use CRS
    * codes as the location so avoid the disaster above.
@@ -83,44 +82,86 @@ export class CIFRepository {
   public async getSchedules(): Promise<ScheduleResults> {
     const scheduleBuilder = new ScheduleBuilder();
     const query = this.stream.query(`
-      SELECT 
- s.schedule_id as id,
- s.train_uid, 
- e.rsid as retail_train_id, 
- greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date)) as runs_from, 
- least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date)) as runs_to,
-SUBSTRING(s.valid_days, 1, 1 ) as monday,
-SUBSTRING(s.valid_days, 2, 1 ) as tuesday,
-SUBSTRING(s.valid_days, 3, 1 ) as wednesday,
-SUBSTRING(s.valid_days, 4, 1 ) as thursday,
-SUBSTRING(s.valid_days, 5, 1 ) as friday,
-SUBSTRING(s.valid_days, 6, 1 ) as saturday,
-SUBSTRING(s.valid_days, 7, 1 ) as sunday,
-loc.crs_code as crs_code, s.stp_indicator as stp_indicator,
-sloc.public_arrival_time, sloc.public_departure_time,
-IF(s.train_status="S", "SS", s.train_category) AS train_category, 
-IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time) AS scheduled_arrival_time, 
-IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time) AS scheduled_departure_time,
-sloc.platform, e.atoc_code, sloc.schedule_location_id AS stop_id, 
-COALESCE(sloc.activity, "") as activity, s.reservations, s.train_class
-FROM cif_schedule as s 
-LEFT JOIN cif_schedule_extra as e
-	ON e.schedule_id = s.schedule_id
-LEFT JOIN cif_schedule_location as sloc
-	ON sloc.schedule_id = s.schedule_id
-LEFT JOIN master_location as loc
-	ON sloc.tiploc = loc.tiploc
-	
-WHERE 
-	(sloc.schedule_location_id IS NULL OR (loc.crs_code IS NOT NULL AND loc.crs_code != "") )
-	AND s.wef_date < ?
-  AND s.weu_date >= ?
-  AND (s.import_weu_date IS NULL OR (s.import_weu_date > ?) ) AND (s.schedule_type != 'VSTP' OR ?)
-  
-  HAVING runs_to >= runs_from
-ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
-      `, [this.endRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD"), !this.excludeVstpSchedules]);
-      await Promise.all([
+SELECT s.schedule_id                                                   AS id,
+       s.train_uid,
+       e.rsid                                                          AS retail_train_id,
+       greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date))   AS runs_from,
+       least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date))      AS runs_to,
+       SUBSTRING(s.valid_days, 1, 1)                                   AS monday,
+       SUBSTRING(s.valid_days, 2, 1)                                   AS tuesday,
+       SUBSTRING(s.valid_days, 3, 1)                                   AS wednesday,
+       SUBSTRING(s.valid_days, 4, 1)                                   AS thursday,
+       SUBSTRING(s.valid_days, 5, 1)                                   AS friday,
+       SUBSTRING(s.valid_days, 6, 1)                                   AS saturday,
+       SUBSTRING(s.valid_days, 7, 1)                                   AS sunday,
+       loc.crs_code                                                    AS crs_code,
+       s.stp_indicator                                                 AS stp_indicator,
+       sloc.location_order,
+       tma.event_type                                                  AS event_type,
+       tma.correction_ind                                              AS correction_ind_1,
+       tmd.correction_ind                                              AS correction_ind_2,
+       tma.actual_timestamp                                            AS actual_timestamp_1,
+       tmd.actual_timestamp                                            AS actual_timestamp_2,
+       sloc.public_arrival_time,
+       sloc.public_departure_time,
+       IF(s.train_status = "S", "SS", s.train_category)                AS train_category,
+       IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time)   AS scheduled_arrival_time,
+       IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time) AS scheduled_departure_time,
+       sloc.platform,
+       e.atoc_code,
+       sloc.schedule_location_id                                       AS stop_id,
+       COALESCE(sloc.activity, "")                                     AS activity,
+       s.reservations,
+       s.train_class
+
+    FROM cif_schedule AS s
+
+    LEFT JOIN cif_schedule_extra AS e
+    ON e.schedule_id = s.schedule_id
+
+    LEFT JOIN train_activation as ta
+    ON ta.train_uid = s.train_uid
+
+    LEFT JOIN train_movement AS tma
+    ON tma.activation_id = ta.activation_id
+    AND tma.event_type IN ('ARRIVAL', 'DEPARTURE')
+    AND tma.offroute_ind IS FALSE
+
+    LEFT JOIN train_movement AS tmd
+    ON ta.activation_id = tmd.activation_id
+    AND tmd.loc_stanox = tma.loc_stanox
+    AND (tma.movement_id IS NULL OR Coalesce (tmd.schedule_location_id, 1) = Coalesce (tma.schedule_location_id, 1))
+    AND tmd.event_type != tma.event_type
+    AND tmd.offroute_ind is FALSE
+
+    LEFT JOIN cif_schedule_location AS sloc
+    ON tma.schedule_location_id = sloc.schedule_location_id
+
+    LEFT JOIN master_location AS loc
+    ON sloc.tiploc = loc.tiploc
+
+    WHERE
+    ta.tp_origin_timestamp between '2021-02-05' and '2021-02-05'
+    and ta.train_uid = 'G95543'
+    AND (sloc.schedule_location_id IS NULL OR (loc.crs_code IS NOT NULL AND loc.crs_code != ""))
+
+    AND (s.import_weu_date IS NULL OR (s.import_weu_date > '2021-02-06'))
+      AND s.wef_date < '2021-02-06'
+  AND s.weu_date >= '2021-02-01'
+
+    AND (s.schedule_type != 'VSTP')
+
+    AND sloc.schedule_location_id IS NOT NULL
+
+    AND ((tma.event_type = 'ARRIVAL' AND tmd.event_type IS NULL) OR (tma.event_type = 'DEPARTURE' AND tmd.event_type IS NULL)
+    OR (tmd.event_type = 'DEPARTURE' AND tma.event_type = 'ARRIVAL'))
+
+    AND (tma.schedule_location_id = tmd.schedule_location_id OR IF (tmd.schedule_location_id IS NULL, '1', '0') = '1')
+
+    HAVING runs_to >= runs_from
+    ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
+      `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD"), !this.excludeVstpSchedules]);
+    await Promise.all([
       scheduleBuilder.loadSchedules(query),
       // scheduleBuilder.loadSchedules(this.stream.query(`
       //   SELECT
@@ -128,7 +169,7 @@ ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
       //     monday, tuesday, wednesday, thursday, friday, saturday, sunday,
       //     stp_indicator, location AS crs_code, train_category,
       //     public_arrival_time, public_departure_time, scheduled_arrival_time, scheduled_departure_time,
-      //     platform, NULL AS atoc_code, z_stop_time.id AS stop_id, activity, NULL AS reservations, "S" AS train_class 
+      //     platform, NULL AS atoc_code, z_stop_time.id AS stop_id, activity, NULL AS reservations, "S" AS train_class
       //   FROM z_schedule
       //   JOIN z_stop_time ON z_schedule.id = z_stop_time.z_schedule
       //   WHERE runs_from < CURDATE()
@@ -198,7 +239,7 @@ ORDER BY stp_indicator DESC, s.schedule_id, sloc.location_order
    */
   public async getFixedLinks(): Promise<FixedLink[]> {
     const results: FixedLink[] = [];
-    // If excludeFixedLinks flag is set to true, we will return empty FixedLink here. 
+    // If excludeFixedLinks flag is set to true, we will return empty FixedLink here.
     if(this.excludeFixedLinks) {
       return results;
     }
@@ -277,6 +318,11 @@ export interface ScheduleStopTimeRow {
   crs_code: CRS,
   train_category: string,
   atoc_code: string | null,
+  event_type: string,
+  correction_ind_1: string,
+  correction_ind_2: string,
+  actual_timestamp_1: Object | null,
+  actual_timestamp_2: Object | null,
   public_arrival_time: string | null,
   public_departure_time: string | null,
   scheduled_arrival_time: string | null,
