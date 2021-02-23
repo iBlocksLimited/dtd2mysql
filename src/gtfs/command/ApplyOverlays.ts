@@ -29,6 +29,16 @@ export function applyOverlays(schedules: OverlayRecord[], idGenerator: IdGenerat
   return schedulesByTuid;
 }
 
+export function convertToOverlayIndex(schedules: OverlayRecord[]): OverlayIndex {
+  const schedulesByTuid: OverlayIndex = {};
+  for (const schedule of schedules) {
+    if(schedule.stp !== STP.Cancellation) {
+      (schedulesByTuid[schedule.tuid] = schedulesByTuid[schedule.tuid] || []).push(schedule);
+    }
+  }
+  return schedulesByTuid;
+}
+
 /**
  * Return a Iterator that generates incremental numbers starting at the given number
  */

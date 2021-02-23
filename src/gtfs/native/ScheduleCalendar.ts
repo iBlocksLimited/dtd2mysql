@@ -222,6 +222,13 @@ export class ScheduleCalendar {
   }
 
   /**
+   * Check if 2 calendars represents the exact same date.
+   */
+  public calendarOnSameDate(calendar: ScheduleCalendar): boolean {
+    return this.runsFrom.isSame(this.runsTo) ?  this.runsFrom.isSame(calendar.runsFrom) && this.runsTo.isSame(calendar.runsTo) : false;
+  }
+
+  /**
    * Shift the calendar forward a day
    */
   @memoize

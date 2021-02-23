@@ -3,12 +3,12 @@ import {CIFRepository} from "../gtfs/repository/CIFRepository";
 import {Schedule} from "../gtfs/native/Schedule";
 import {agencies} from "../../config/gtfs/agency";
 import {Association} from "../gtfs/native/Association";
-import {applyOverlays} from "../gtfs/command/ApplyOverlays";
+import {applyOverlays, convertToOverlayIndex} from "../gtfs/command/ApplyOverlays";
 import {mergeSchedules} from "../gtfs/command/MergeSchedules";
 import {applyAssociations, AssociationIndex, ScheduleIndex} from "../gtfs/command/ApplyAssociations";
 import {createCalendar, ServiceIdIndex} from "../gtfs/command/CreateCalendar";
 import {ScheduleResults} from "../gtfs/repository/ScheduleBuilder";
-import {GTFSOutput} from "../gtfs/output/GTFSOutput";
+import {GTFSOutput} from "../gtfs/output/GTFSOutput";addLateNightServices
 import * as fs from "fs";
 import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
 import streamToPromise = require("stream-to-promise");
@@ -113,7 +113,8 @@ export class OutputGTFSCommand implements CLICommand {
     console.log("association overlays: ", associations.length);
     const processedAssociations = <AssociationIndex>applyOverlays(associations);
     console.log("schedule overlays: ", scheduleResults.schedules.length);
-    const processedSchedules = <ScheduleIndex>applyOverlays(scheduleResults.schedules, scheduleResults.idGenerator);
+    // const processedSchedules = <ScheduleIndex>applyOverlays(scheduleResults.schedules, scheduleResults.idGenerator); // todo gtc delete
+    const processedSchedules = <ScheduleIndex>convertToOverlayIndex(scheduleResults.schedules);
     const associatedSchedules = applyAssociations(processedSchedules, processedAssociations, scheduleResults.idGenerator);
     console.log("merge schedules", associatedSchedules.length)
     const mergedSchedules = <Schedule[]>mergeSchedules(associatedSchedules);
