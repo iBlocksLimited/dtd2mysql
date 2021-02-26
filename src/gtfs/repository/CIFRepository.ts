@@ -135,7 +135,6 @@ FROM train_activation ta
 
 WHERE 
     ta.tp_origin_timestamp between ? and ?
-    and ta.train_uid in('Y45975','Y45997')
   AND loc.crs_code IS NOT NULL
   AND loc.crs_code != ""
   AND sloc.schedule_location_id IS NOT NULL
