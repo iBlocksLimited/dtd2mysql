@@ -1,4 +1,3 @@
-
 import {DatabaseConnection} from "../../database/DatabaseConnection";
 import {Transfer} from "../file/Transfer";
 import {CRS, Stop} from "../file/Stop";
@@ -80,8 +79,18 @@ export class CIFRepository {
    * codes as the location so avoid the disaster above.
    */
   public async getSchedules(): Promise<ScheduleResults> {
+    console.log(`Start to generate schedules, time: ${new Date().toLocaleString()}`)
     const scheduleBuilder = new ScheduleBuilder();
-    const query = this.stream.query(`
+
+    const datePairs = this.getDatesBetweenDates(this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD"));
+    console.log(`Will retrieve trust data for these date pairs: ${datePairs}`)
+    for (let dateRange of datePairs) {
+      await this.waitForSeconds(2);
+      const startDate = dateRange[0]
+      const endDate = dateRange[1]
+      console.log(`Generating schedule for ${startDate} to ${endDate} on: ${new Date().toLocaleString()}`)
+
+      const queryTemplate = this.stream.query(`
 SELECT ta.activation_id                                                   AS id,
        s.train_uid,
        e.rsid                                                          AS retail_train_id,
@@ -119,14 +128,14 @@ FROM train_activation ta
                                             AND tmd.event_type != tma.event_type
                                             AND tmd.offroute_ind is FALSE
        LEFT JOIN train_movement tm_last on ta.last_train_movement = tm_last.movement_id
-       LEFT JOIN cif_schedule s on s.schedule_id = tm_last.schedule_id
+       LEFT JOIN cif_schedule s on s.schedule_id = tm_last.schedule_id and s.stp_indicator not in ('C')
        LEFT JOIN cif_schedule_extra AS e ON e.schedule_id = s.schedule_id
        LEFT JOIN cif_schedule_location AS sloc ON tma.schedule_location_id = sloc.schedule_location_id
        LEFT JOIN master_location AS loc ON sloc.tiploc = loc.tiploc
 
 WHERE 
-    ta.tp_origin_timestamp between '2021-02-01' and '2021-02-07'
-    and ta.train_uid in('G70955','G70014')
+    ta.tp_origin_timestamp between ? and ?
+    and ta.train_uid in('Y45975','Y45997')
   AND loc.crs_code IS NOT NULL
   AND loc.crs_code != ""
   AND sloc.schedule_location_id IS NOT NULL
@@ -135,25 +144,17 @@ WHERE
   AND (tma.schedule_location_id = tmd.schedule_location_id OR IF(tmd.schedule_location_id IS NULL, '1', '0') = '1')
 
     HAVING runs_to >= runs_from
-    ORDER BY stp_indicator DESC, s.schedule_id, ta.tp_origin_timestamp, sloc.location_order
-      `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD"), !this.excludeVstpSchedules]);
-    await Promise.all([
-      scheduleBuilder.loadSchedules(query),
-      // scheduleBuilder.loadSchedules(this.stream.query(`
-      //   SELECT
-      //     ${lastSchedule.id} + z_schedule.id AS id, train_uid, null, runs_from, runs_to,
-      //     monday, tuesday, wednesday, thursday, friday, saturday, sunday,
-      //     stp_indicator, location AS crs_code, train_category,
-      //     public_arrival_time, public_departure_time, scheduled_arrival_time, scheduled_departure_time,
-      //     platform, NULL AS atoc_code, z_stop_time.id AS stop_id, activity, NULL AS reservations, "S" AS train_class
-      //   FROM z_schedule
-      //   JOIN z_stop_time ON z_schedule.id = z_stop_time.z_schedule
-      //   WHERE runs_from < CURDATE()
-      //   AND runs_to >= CURDATE() - INTERVAL 1 DAY
-      //   ORDER BY stop_id
-      // `))
-    ]);
+    ORDER BY ta.activation_id, ta.tp_origin_timestamp, sloc.location_order
+      `, [startDate, endDate]);
+
+      await Promise.all([
+        scheduleBuilder.loadSchedules(queryTemplate),
+      ]);
+      console.log(`Finished generating schedule for ${startDate} to ${endDate} on: ${new Date().toLocaleString()}`)
+    }
+
     console.log("Schedule size", scheduleBuilder.results.schedules.length);
+    console.log(`Finished to generate schedules, time: ${new Date().toLocaleString()}`)
     return scheduleBuilder.results;
   }
 
@@ -274,6 +275,40 @@ WHERE
   public end(): Promise<any> {
     return Promise.all([this.db.end(), this.stream.end()]);
   }
+
+  public waitForSeconds(seconds) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, seconds * 1000);
+    })
+  }
+
+  /**
+   * Output a list of sublist, each sublist has 2 adjacent dates/same dates which is used to fulfil the SQL between condition: `ta.tp_origin_timestamp between ? and ?`
+   * e.g. start = '2021-01-01' and end = '2021-01-05' will output [['2021-01-01', '2021-01-02'], ['2021-01-03', '2021-01-04'], ['2021-01-05', '2021-01-05']].
+   */
+  public getDatesBetweenDates(start, end): string[][] {
+    let dates: string[] = []
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (startDate.valueOf() > endDate.valueOf()) {
+      throw new Error(`start date: ${start} cannot be greater than end date: ${end}.`)
+    }
+    const theDate = new Date(startDate)
+    while (theDate < endDate) {
+      dates = [...dates, theDate.toISOString().split('T')[0]]
+      theDate.setDate(theDate.getDate() + 1)
+    }
+    dates = [...dates, end]
+    if (dates.length % 2 !== 0) {
+      dates.push(end);
+    }
+    let results: string[][] = [];
+    while (dates.length) {
+      results.push(dates.splice(0, 2));
+    }
+    return results;
+  }
+
 
 }
 

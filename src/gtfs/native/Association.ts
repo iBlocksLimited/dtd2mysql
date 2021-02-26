@@ -66,12 +66,6 @@ export class Association implements OverlayRecord {
 
       schedules.push(assoc.clone(after, idGenerator.next().value));
     }
-
-    // for each exclude day of the association
-    for (const excludeDay of Object.values(assocCalendar.excludeDays)) {
-      schedules.push(assoc.clone(assoc.calendar.clone(excludeDay, excludeDay), idGenerator.next().value));
-    }
-
     return schedules;
   }
 

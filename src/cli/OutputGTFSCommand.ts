@@ -8,7 +8,7 @@ import {mergeSchedules} from "../gtfs/command/MergeSchedules";
 import {applyAssociations, AssociationIndex, ScheduleIndex} from "../gtfs/command/ApplyAssociations";
 import {createCalendar, ServiceIdIndex} from "../gtfs/command/CreateCalendar";
 import {ScheduleResults} from "../gtfs/repository/ScheduleBuilder";
-import {GTFSOutput} from "../gtfs/output/GTFSOutput";addLateNightServices
+import {GTFSOutput} from "../gtfs/output/GTFSOutput";
 import * as fs from "fs";
 import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
 import streamToPromise = require("stream-to-promise");
