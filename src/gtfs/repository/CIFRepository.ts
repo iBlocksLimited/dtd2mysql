@@ -82,13 +82,11 @@ export class CIFRepository {
     console.log(`Start to generate schedules, time: ${new Date().toLocaleString()}`)
     const scheduleBuilder = new ScheduleBuilder();
 
-    const datePairs = this.getDatesBetweenDates(this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD"));
-    console.log(`Will retrieve trust data for these date pairs: ${datePairs}`)
-    for (let dateRange of datePairs) {
+    const dates = this.getDatesBetweenDates(this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD"));
+    console.log(`Will retrieve trust data for these date pairs: ${dates}`)
+    for (let date of dates) {
       await this.waitForSeconds(2);
-      const startDate = dateRange[0]
-      const endDate = dateRange[1]
-      console.log(`Generating schedule for ${startDate} to ${endDate} on: ${new Date().toLocaleString()}`)
+      console.log(`Generating schedule for ${date} on: ${new Date().toLocaleString()}`)
 
       const queryTemplate = this.stream.query(`
 SELECT ta.activation_id                                                   AS id,
@@ -134,7 +132,7 @@ FROM train_activation ta
        LEFT JOIN master_location AS loc ON sloc.tiploc = loc.tiploc
 
 WHERE 
-    ta.tp_origin_timestamp between ? and ?
+    ta.tp_origin_timestamp = ?
   AND loc.crs_code IS NOT NULL
   AND loc.crs_code != ""
   AND sloc.schedule_location_id IS NOT NULL
@@ -144,12 +142,12 @@ WHERE
 
     HAVING runs_to >= runs_from
     ORDER BY ta.activation_id, ta.tp_origin_timestamp, sloc.location_order
-      `, [startDate, endDate]);
+      `, [date]);
 
       await Promise.all([
         scheduleBuilder.loadSchedules(queryTemplate),
       ]);
-      console.log(`Finished generating schedule for ${startDate} to ${endDate} on: ${new Date().toLocaleString()}`)
+      console.log(`Finished generating schedule for ${date} on: ${new Date().toLocaleString()}`)
     }
 
     console.log("Schedule size", scheduleBuilder.results.schedules.length);
@@ -282,10 +280,9 @@ WHERE
   }
 
   /**
-   * Output a list of sublist, each sublist has 2 adjacent dates/same dates which is used to fulfil the SQL between condition: `ta.tp_origin_timestamp between ? and ?`
-   * e.g. start = '2021-01-01' and end = '2021-01-05' will output [['2021-01-01', '2021-01-02'], ['2021-01-03', '2021-01-04'], ['2021-01-05', '2021-01-05']].
+   * Output a list of dates between start and end dates inclusive.
    */
-  public getDatesBetweenDates(start, end): string[][] {
+  public getDatesBetweenDates(start, end): string[] {
     let dates: string[] = []
     const startDate = new Date(start);
     const endDate = new Date(end);
@@ -298,14 +295,8 @@ WHERE
       theDate.setDate(theDate.getDate() + 1)
     }
     dates = [...dates, end]
-    if (dates.length % 2 !== 0) {
-      dates.push(end);
-    }
-    let results: string[][] = [];
-    while (dates.length) {
-      results.push(dates.splice(0, 2));
-    }
-    return results;
+
+    return dates;
   }
 
 
