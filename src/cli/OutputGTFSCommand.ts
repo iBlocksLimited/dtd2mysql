@@ -91,7 +91,9 @@ export class OutputGTFSCommand implements CLICommand {
       const serviceId = serviceIds[schedule.calendar.id];
 
       trips.write(schedule.toTrip(serviceId, routeId));
-      schedule.stopTimes.forEach(r => stopTimes.write(r));
+      schedule.stopTimes.forEach(r => {
+        delete r.correctionIndTotal;
+        stopTimes.write(r)});
     }
 
     for (const route of Object.values(routes)) {
@@ -113,7 +115,6 @@ export class OutputGTFSCommand implements CLICommand {
     console.log("association overlays: ", associations.length);
     const processedAssociations = <AssociationIndex>applyOverlays(associations);
     console.log("schedule overlays: ", scheduleResults.schedules.length);
-    // const processedSchedules = <ScheduleIndex>applyOverlays(scheduleResults.schedules, scheduleResults.idGenerator); // todo gtc delete
     const processedSchedules = <ScheduleIndex>convertToOverlayIndex(scheduleResults.schedules);
     const associatedSchedules = applyAssociations(processedSchedules, processedAssociations, scheduleResults.idGenerator);
     console.log("merge schedules", associatedSchedules.length)

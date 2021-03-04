@@ -80,36 +80,6 @@ export class ScheduleBuilder {
     });
   }
 
-  // todo gtc remove
-  // private createSchedule(row: ScheduleStopTimeRow, stops: StopTime[]): Schedule {
-  //   this.maxId = Math.max(this.maxId, row.id);
-  //
-  //   return new Schedule(
-  //     row.id,
-  //     stops,
-  //     row.train_uid,
-  //     row.retail_train_id,
-  //     new ScheduleCalendar(
-  //       moment(row.runs_from),
-  //       moment(row.runs_to),
-  //       <Days>{
-  //         0: Number(row.sunday),
-  //         1: Number(row.monday),
-  //         2: Number(row.tuesday),
-  //         3: Number(row.wednesday),
-  //         4: Number(row.thursday),
-  //         5: Number(row.friday),
-  //         6: Number(row.saturday)
-  //       }
-  //     ),
-  //     routeTypeIndex.hasOwnProperty(row.train_category) ? routeTypeIndex[row.train_category] : RouteType.Rail,
-  //     row.atoc_code,
-  //     row.stp_indicator,
-  //     row.train_class !== "S",
-  //     row.reservations !== null
-  //   );
-  // }
-
   private createScheduleBasedOnSameCIFSchedule(row: ScheduleStopTimeRow, stops: StopTime[]): Schedule {
     this.maxId = Math.max(this.maxId, row.id);
     return new Schedule(
@@ -149,7 +119,6 @@ export class ScheduleBuilder {
     arrivalTime = this.formatTime(arrivalTimeWithMoment, departHour);
     departureTime = this.formatTime(departureTimeWithMoment, departHour);
 
-    // todo gtc remove this by updating the query to return correct departure time.
     // Minor formatting, as the query will return the departure of a journey as an arrival
     if (row.event_type === 'DEPARTURE' && departureTime === null) {
       departureTime = arrivalTime;
@@ -177,7 +146,7 @@ export class ScheduleBuilder {
     // Calculate the TRUST correction indicator total:
     const correctionIndicatorTotal = +row.correction_ind_1 + +row.correction_ind_2;
     return {
-      trip_id: row.id, // todo gtc the row.id here is really the cif_schedule id.
+      trip_id: row.id,
       arrival_time: (arrivalTime || departureTime),
       departure_time: (departureTime || arrivalTime),
       stop_id: row.crs_code,
