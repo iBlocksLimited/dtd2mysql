@@ -37,7 +37,6 @@ export class OutputGTFSCommand implements CLICommand {
     const scheduleResultsP:Promise<ScheduleResults> = this.repository.getSchedules();
     const transfersP:Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
     const stopsP:Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
-    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
     const fixedLinksP:Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
     
     const schedules:Schedule[] = this.getSchedules(await associationsP, await scheduleResultsP);
@@ -46,6 +45,7 @@ export class OutputGTFSCommand implements CLICommand {
     const calendarP:Promise<void> = this.copy(calendars, "calendar.txt");
     const calendarDatesP:Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
     const tripsP:Promise<void> = this.copyTrips(schedules, serviceIds);
+    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
 
     await Promise.all([
       agencyP,
@@ -93,11 +93,28 @@ export class OutputGTFSCommand implements CLICommand {
       trips.write(schedule.toTrip(serviceId, routeId));
       schedule.stopTimes.forEach(r => {
         delete r.correctionIndTotal;
-        stopTimes.write(r)});
+        stopTimes.write(r)
+      });
     }
 
+    let knownAgencies: string[] = agencies.map(agency => agency.agency_id);
     for (const route of Object.values(routes)) {
       routeFile.write(route);
+
+      // In case we have new agency in the routes that doesn't exist in our agencies list, we create the agency with default info.
+      if (!knownAgencies.includes(route['agency_id'])) {
+        const createdAgency = {
+          agency_id: route['agency_id'],
+          agency_name: `${route['agency_id']} operator`,
+          agency_url: "https://www.google.com",
+          agency_timezone: "Europe/London",
+          agency_lang: "en",
+          agency_phone: "",
+          agency_fare_url: null
+        };
+        agencies.splice(-1, 0, createdAgency);
+        knownAgencies.push(route['agency_id']);
+      }
     }
 
     trips.end();
