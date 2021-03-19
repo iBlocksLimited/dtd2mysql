@@ -56,7 +56,10 @@ export class ScheduleBuilder {
             if (stop.pickup_type === 0 || stop.drop_off_type === 0) {
               const currentLargestCorrectionInd = stops[stops.length - 1].correctionIndTotal;
               const newCorrectionInd = stop.correctionIndTotal;
-              if(newCorrectionInd > currentLargestCorrectionInd) {
+              // If previous stop is a passing point with same CRS code, we use this calling point to replace the passing point as
+              // passing point is not important for timetabling/journey generation and double up stops might cause issue.
+              const previousStopIsPassingPoint = stops[stops.length - 1].pickup_type === 1 && stops[stops.length - 1].drop_off_type === 1
+              if(newCorrectionInd > currentLargestCorrectionInd || previousStopIsPassingPoint) {
                 stops[stops.length - 1] = Object.assign(stop, { stop_sequence: stops.length });
               }
             }
