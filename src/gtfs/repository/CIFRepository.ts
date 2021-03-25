@@ -6,9 +6,11 @@ import {ScheduleCalendar, Days} from "../native/ScheduleCalendar";
 import {Association, AssociationType, DateIndicator} from "../native/Association";
 import {RSID, STP, TUID} from "../native/OverlayRecord";
 import {ScheduleBuilder, ScheduleResults} from "./ScheduleBuilder";
-import {RouteType} from "../file/Route";
 import {Duration} from "../native/Duration";
 import {FixedLink} from "../file/FixedLink";
+import {TrainCancellation, TrainCancellationType} from "../native/TrainCancellation";
+import {TrainReinstatement} from "../native/TrainReinstatement";
+import {TrainChangeOfOrigin} from "../native/TrainChangeOfOrigin";
 
 /**
  * Provide access to the CIF/TTIS data in a vaguely GTFS-ish shape.
@@ -126,7 +128,7 @@ FROM train_activation ta
                                             AND tmd.event_type != tma.event_type
                                             AND tmd.offroute_ind is FALSE
        LEFT JOIN train_movement tm_last on ta.last_train_movement = tm_last.movement_id
-       LEFT JOIN cif_schedule s on s.schedule_id = tm_last.schedule_id and s.stp_indicator not in ('C')
+       LEFT JOIN cif_schedule s on s.schedule_id = tm_last.schedule_id 
        LEFT JOIN cif_schedule_extra AS e ON e.schedule_id = s.schedule_id
        LEFT JOIN cif_schedule_location AS sloc ON tma.schedule_location_id = sloc.schedule_location_id
        LEFT JOIN master_location AS loc ON sloc.tiploc = loc.tiploc
@@ -138,7 +140,7 @@ WHERE
   AND sloc.schedule_location_id IS NOT NULL
   AND ((tma.event_type = 'ARRIVAL' AND tmd.event_type IS NULL) OR (tma.event_type = 'DEPARTURE' AND tmd.event_type IS NULL)
          OR (tmd.event_type = 'DEPARTURE' AND tma.event_type = 'ARRIVAL'))
-  AND (tma.schedule_location_id = tmd.schedule_location_id OR IF(tmd.schedule_location_id IS NULL, '1', '0') = '1')
+  AND (tma.schedule_location_id = tmd.schedule_location_id OR tmd.schedule_location_id IS NULL) 
 
     HAVING runs_to >= runs_from
     ORDER BY ta.activation_id, ta.tp_origin_timestamp, sloc.location_order
@@ -246,6 +248,128 @@ WHERE
     return results;
   }
 
+  /**
+   * Get train cancellations
+   */
+  public async getTrainCancellation(): Promise<TrainCancellation[]> {
+    const [results] = await this.db.query<TrainCancellationRow[]>(`
+SELECT tc.cancellation_id                     AS cancellation_id,
+       tc.activation_id                       AS train_activation_id,
+       ta.train_uid                           AS train_uid,
+       ta.tp_origin_timestamp                 AS train_activation_date,
+       GROUP_CONCAT(distinct mlCanx.crs_code) AS cancel_crs_code,
+       tc.dep_timestamp                       AS dep_timestamp,
+       tc.canx_type                           AS cancel_type,
+       tc.last_canx_id                        AS last_cancellation_id,
+       tc.canx_order                          AS cancel_order,
+       tc.schedule_location_id                AS schedule_location_id
+FROM train_activation ta
+       LEFT JOIN train_cancellation tc ON tc.activation_id = ta.activation_id
+       LEFT JOIN master_location mlCanx ON mlCanx.stanox = tc.loc_stanox
+       JOIN train_movement tm on tm.activation_id = ta.activation_id
+WHERE ta.activation_id IS NOT NULL
+  AND ta.tp_origin_timestamp between ? and ?
+  AND tc.dep_timestamp IS NOT NULL
+  AND mlCanx.crs_code IS NOT NULL
+  AND mlCanx.crs_code != ''
+  AND tm.movement_id IS NOT NULL
+GROUP BY tc.cancellation_id
+ORDER BY tc.activation_id, tc.canx_order;
+    `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD")]);
+    console.log("TrainCancellation size:" ,results.length)
+    return results.map(row => new TrainCancellation(
+            row.cancellation_id,
+            row.train_activation_id,
+            row.train_uid,
+            moment(row.train_activation_date),
+            row.cancel_crs_code.split(","),
+            moment(row.dep_timestamp),
+            row.cancel_type,
+            row.last_cancellation_id,
+            row.cancel_order,
+            row.schedule_location_id
+    ));
+  }
+
+
+  /**
+   * Get train reinstatement
+   */
+  public async getTrainReinstatement(): Promise<TrainReinstatement[]> {
+    const [results] = await this.db.query<TrainReinstatementRow[]>(`
+SELECT tr.reinstatement_id                AS reinstatement_id,
+       tr.activation_id                   AS train_activation_id,
+       ta.train_uid                       AS train_uid,
+       ta.tp_origin_timestamp             AS train_activation_date,
+       GROUP_CONCAT(distinct ml.crs_code) AS reinstatement_crs_code,
+       tr.dep_timestamp                   AS dep_timestamp,
+       tr.last_rein_id                    AS last_reinstatement_id,
+       tr.reinstatement_order             AS reinstatement_order,
+       tr.schedule_location_id            AS schedule_location_id
+FROM train_activation ta
+       LEFT JOIN train_reinstatement tr ON tr.activation_id = ta.activation_id
+       LEFT JOIN master_location ml ON ml.stanox = tr.loc_stanox
+       JOIN train_movement tm on tm.activation_id = ta.activation_id
+WHERE ta.activation_id IS NOT NULL
+  AND ta.tp_origin_timestamp between ? and ?
+  AND tr.dep_timestamp IS NOT NULL
+  AND ml.crs_code IS NOT NULL
+  AND ml.crs_code != ''
+  AND tm.movement_id IS NOT NULL
+GROUP BY tr.reinstatement_id
+ORDER BY tr.activation_id, tr.reinstatement_order;
+    `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD")]);
+    console.log("TrainReinstatement size:" ,results.length)
+    return results.map(row => new TrainReinstatement(
+            row.reinstatement_id,
+            row.train_activation_id,
+            row.train_uid,
+            moment(row.train_activation_date),
+            row.reinstatement_crs_code.split(","),
+            moment(row.dep_timestamp),
+            row.last_reinstatement_id,
+            row.reinstatement_order,
+            row.schedule_location_id
+    ));
+  }
+
+  /**
+   * Get train change of origin
+   */
+  public async getTrainChangeOfOrigin(): Promise<TrainChangeOfOrigin[]> {
+    const [results] = await this.db.query<TrainChangeOfOriginRow[]>(`
+SELECT tco.change_of_origin_id            AS change_of_origin_id,
+       tco.activation_id                  AS train_activation_id,
+       ta.train_uid                       AS train_uid,
+       ta.tp_origin_timestamp             AS train_activation_date,
+       GROUP_CONCAT(distinct ml.crs_code) AS change_of_origin_crs_code,
+       tco.dep_timestamp                  AS dep_timestamp,
+       tco.coo_timestamp                  AS change_of_origin_inserted_time
+FROM train_activation ta
+       LEFT JOIN train_change_of_origin tco ON tco.activation_id = ta.activation_id
+       LEFT JOIN master_location ml ON ml.stanox = tco.loc_stanox
+       JOIN train_movement tm on tm.activation_id = ta.activation_id
+WHERE ta.activation_id IS NOT NULL
+  AND ta.tp_origin_timestamp between ? and ?
+  AND tco.dep_timestamp IS NOT NULL
+  AND ml.crs_code IS NOT NULL
+  AND ml.crs_code != ''
+  AND tm.movement_id IS NOT NULL
+GROUP BY tco.change_of_origin_id
+ORDER BY tco.activation_id, tco.change_of_origin_id, tco.coo_timestamp;
+    `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD")]);
+    console.log("TrainChangeOfIrigin size:" ,results.length)
+    return results.map(row => new TrainChangeOfOrigin(
+            row.change_of_origin_id,
+            row.train_activation_id,
+            row.train_uid,
+            moment(row.train_activation_date),
+            row.change_of_origin_crs_code.split(","),
+            moment(row.dep_timestamp),
+            moment(row.change_of_origin_inserted_time)
+    ));
+  }
+
   private getFixedLinkRow(origin: CRS, destination: CRS, row: FixedLinkRow): FixedLink {
     return {
       from_stop_id: origin,
@@ -316,14 +440,15 @@ export interface ScheduleStopTimeRow {
   event_date: string,
   correction_ind_1: string,
   correction_ind_2: string,
-  actual_timestamp_1: Object | null,
-  actual_timestamp_2: Object | null,
+  actual_timestamp_1: string | null,
+  actual_timestamp_2: string | null,
   public_arrival_time: string | null,
   public_departure_time: string | null,
   scheduled_arrival_time: string | null,
   scheduled_departure_time: string | null,
   platform: string,
   activity: string,
+  stop_id: number| null,
   train_class: null | "S" | "B",
   reservations: null | "R" | "S" | "A"
 }
@@ -371,6 +496,43 @@ interface FixedLinkRow {
   friday: 0 | 1;
   saturday: 0 | 1;
   sunday: 0 | 1;
+}
+
+interface TrainCancellationRow {
+  cancellation_id: number,
+  train_activation_id: number,
+  train_uid: TUID,
+  train_activation_date: string,
+  cancel_crs_code: CRS,
+  dep_timestamp: string,
+  cancel_type: TrainCancellationType,
+  cancellation_timestamp: string,
+  last_cancellation_id: number | null,
+  cancel_order: number,
+  schedule_location_id: number | null
+}
+
+interface TrainReinstatementRow {
+  reinstatement_id: number,
+  train_activation_id: number,
+  train_uid: TUID,
+  train_activation_date: string,
+  reinstatement_crs_code: CRS,
+  dep_timestamp: string,
+  reinstatement_timestamp: string,
+  last_reinstatement_id: number | null,
+  reinstatement_order: number,
+  schedule_location_id: number | null
+}
+
+interface TrainChangeOfOriginRow {
+  change_of_origin_id: number,
+  train_activation_id: number,
+  train_uid: TUID,
+  train_activation_date: string,
+  change_of_origin_crs_code: CRS,
+  dep_timestamp: string,
+  change_of_origin_inserted_time: string,
 }
 
 enum FixedLinkMode {

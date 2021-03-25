@@ -14,14 +14,21 @@ import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
 import streamToPromise = require("stream-to-promise");
 import {Calendar} from "../gtfs/file/Calendar";
 import {CalendarDate} from "../gtfs/file/CalendarDate";
+import {TrainCancellation} from "../gtfs/native/TrainCancellation";
+import {
+  applyTrainVariationEvents
+} from "../gtfs/command/ApplyCancellations";
+import {TrainReinstatement} from "../gtfs/native/TrainReinstatement";
+import {TrainChangeOfOrigin} from "../gtfs/native/TrainChangeOfOrigin";
 
 export class OutputGTFSCommand implements CLICommand {
   public baseDir: string;
 
   public constructor(
-    private readonly repository: CIFRepository,
-    private readonly output: GTFSOutput
-  ) {}
+          private readonly repository: CIFRepository,
+          private readonly output: GTFSOutput
+  ) {
+  }
 
   /**
    * Turn the timetable feed into GTFS files
@@ -33,19 +40,23 @@ export class OutputGTFSCommand implements CLICommand {
       throw new Error(`Output path ${this.baseDir} does not exist.`);
     }
 
-    const associationsP:Promise<Association[]> = this.repository.getAssociations();
-    const scheduleResultsP:Promise<ScheduleResults> = this.repository.getSchedules();
-    const transfersP:Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
-    const stopsP:Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
-    const fixedLinksP:Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
-    
-    const schedules:Schedule[] = this.getSchedules(await associationsP, await scheduleResultsP);
-    const [calendars, calendarDates, serviceIds]:[Calendar[], CalendarDate[], ServiceIdIndex] = createCalendar(schedules);
+    const associationsP: Promise<Association[]> = this.repository.getAssociations();
+    const scheduleResultsP: Promise<ScheduleResults> = this.repository.getSchedules();
+    const trainCancellationsP: Promise<TrainCancellation[]> = this.repository.getTrainCancellation();
+    const trainReinstatementP: Promise<TrainReinstatement[]> = this.repository.getTrainReinstatement();
+    const trainChangeOfOriginP: Promise<TrainChangeOfOrigin[]> = this.repository.getTrainChangeOfOrigin();
+    const transfersP: Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
+    const stopsP: Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
+    const fixedLinksP: Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
 
-    const calendarP:Promise<void> = this.copy(calendars, "calendar.txt");
-    const calendarDatesP:Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
-    const tripsP:Promise<void> = this.copyTrips(schedules, serviceIds);
-    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
+    const schedules: Schedule[] = this.getSchedules(await associationsP, await trainCancellationsP, await trainReinstatementP,
+            await trainChangeOfOriginP,await scheduleResultsP);
+    const [calendars, calendarDates, serviceIds]: [Calendar[], CalendarDate[], ServiceIdIndex] = createCalendar(schedules);
+
+    const calendarP: Promise<void> = this.copy(calendars, "calendar.txt");
+    const calendarDatesP: Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
+    const tripsP: Promise<void> = this.copyTrips(schedules, serviceIds);
+    const agencyP: Promise<void> = this.copy(agencies, "agency.txt");
 
     await Promise.all([
       agencyP,
@@ -93,6 +104,8 @@ export class OutputGTFSCommand implements CLICommand {
       trips.write(schedule.toTrip(serviceId, routeId));
       schedule.stopTimes.forEach(r => {
         delete r.correctionIndTotal;
+        delete r.scheduled_arrival_time;
+        delete r.scheduled_departure_time;
         stopTimes.write(r)
       });
     }
@@ -128,17 +141,21 @@ export class OutputGTFSCommand implements CLICommand {
     ]);
   }
 
-  private getSchedules(associations: Association[], scheduleResults: ScheduleResults): Schedule[] {
+  // todo gtc really need to change all the name 'schedule' to 'train activation' or 'trust pattern' or 'trust movement pattern'
+  private getSchedules(associations: Association[], trainCancellations: TrainCancellation[], trainReinstatement: TrainReinstatement[],
+                       trainChangeOfOrigin: TrainChangeOfOrigin[], scheduleResults: ScheduleResults): Schedule[] {
     console.log("association overlays: ", associations.length);
     const processedAssociations = <AssociationIndex>applyOverlays(associations);
+    console.log("train cancellations: ", trainCancellations.length);
     console.log("schedule overlays: ", scheduleResults.schedules.length);
-    const processedSchedules = <ScheduleIndex>convertToOverlayIndex(scheduleResults.schedules);
+    const schedulesWithCancellationApplied: Schedule[] = applyTrainVariationEvents(scheduleResults.schedules,
+            trainCancellations, trainReinstatement, trainChangeOfOrigin);
+    const processedSchedules = <ScheduleIndex>convertToOverlayIndex(schedulesWithCancellationApplied);
     const associatedSchedules = applyAssociations(processedSchedules, processedAssociations, scheduleResults.idGenerator);
     console.log("merge schedules", associatedSchedules.length)
     const mergedSchedules = <Schedule[]>mergeSchedules(associatedSchedules);
-    const schedules = addLateNightServices(mergedSchedules, scheduleResults.idGenerator);
 
-    return schedules;
+    return mergedSchedules;
   }
 
 }

@@ -32,9 +32,7 @@ export function applyOverlays(schedules: OverlayRecord[], idGenerator: IdGenerat
 export function convertToOverlayIndex(schedules: OverlayRecord[]): OverlayIndex {
   const schedulesByTuid: OverlayIndex = {};
   for (const schedule of schedules) {
-    if(schedule.stp !== STP.Cancellation) {
-      (schedulesByTuid[schedule.tuid] = schedulesByTuid[schedule.tuid] || []).push(schedule);
-    }
+    (schedulesByTuid[schedule.tuid] = schedulesByTuid[schedule.tuid] || []).push(schedule);
   }
   return schedulesByTuid;
 }

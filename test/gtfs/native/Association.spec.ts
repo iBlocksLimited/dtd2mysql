@@ -288,6 +288,8 @@ function stop(stopSequence: number, location: CRS, time: string, tripId: number 
     trip_id: tripId,
     arrival_time: time,
     departure_time: time + ":30",
+    scheduled_arrival_time: time,
+    scheduled_departure_time: time + ":30",
     stop_id: location,
     stop_sequence: stopSequence,
     stop_headsign: "",
@@ -295,7 +297,8 @@ function stop(stopSequence: number, location: CRS, time: string, tripId: number 
     drop_off_type: 0,
     shape_dist_traveled: null,
     timepoint: 0,
-    correctionIndTotal: 0
+    correctionIndTotal: 0,
+    scheduled_location_id: 0
   };
 }
 

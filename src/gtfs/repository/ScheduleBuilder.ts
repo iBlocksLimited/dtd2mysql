@@ -25,48 +25,29 @@ export class ScheduleBuilder {
     return new Promise<void>((resolve, reject) => {
       let stops: StopTime[] = [];
       let prevRow: ScheduleStopTimeRow;
-      let arrivalTimeWithMoment,departureTimeWithMoment;
-      let departureHour = 4;
 
       results.on("result", (row: ScheduleStopTimeRow) => {
         if (prevRow && prevRow.id !== row.id) {
+          // We enter this if block only if this is the first stop of a new train activation and there is a prev train activation.
           this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
-          // this.schedules.push(this.createSchedule(prevRow, stops));
           stops = [];
-
-          //Code below sets the departure hour from the real time data to avoid instances of trains arriving before they leave.
-          arrivalTimeWithMoment = this.formatRealTimeStamp(row.actual_timestamp_1);
-          departureTimeWithMoment = this.formatRealTimeStamp(row.actual_timestamp_2);
-
-          //If no real time data available, use public arrival/departure time to set departure hour.
-          departureHour = arrivalTimeWithMoment
-            ? parseInt(arrivalTimeWithMoment.substr(0, 2), 10)
-            : departureTimeWithMoment
-            ? parseInt(departureTimeWithMoment.substr(0, 2), 10)
-            : row.public_arrival_time
-            ? parseInt(row.public_arrival_time.substr(0, 2), 10)
-            : row.public_departure_time
-            ? parseInt(row.public_departure_time.substr(0, 2), 10) : 4;
         }
 
-        if (row.stp_indicator !== STP.Cancellation) {
-          const stop = this.createStop(row, stops.length + 1, departureHour);
+        const stop = this.createStop(row, stops.length + 1, stops);
 
-          if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
-            if (stop.pickup_type === 0 || stop.drop_off_type === 0) {
-              const currentLargestCorrectionInd = stops[stops.length - 1].correctionIndTotal;
-              const newCorrectionInd = stop.correctionIndTotal;
-              // If previous stop is a passing point with same CRS code, we use this calling point to replace the passing point as
-              // passing point is not important for timetabling/journey generation and double up stops might cause issue.
-              const previousStopIsPassingPoint = stops[stops.length - 1].pickup_type === 1 && stops[stops.length - 1].drop_off_type === 1
-              if(newCorrectionInd > currentLargestCorrectionInd || previousStopIsPassingPoint) {
-                stops[stops.length - 1] = Object.assign(stop, { stop_sequence: stops.length });
-              }
+        if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
+          if (stop.pickup_type === 0 || stop.drop_off_type === 0) {
+            const currentLargestCorrectionInd = stops[stops.length - 1].correctionIndTotal;
+            const newCorrectionInd = stop.correctionIndTotal;
+            // If previous stop is a passing point with same CRS code, we use this calling point to replace the passing point as
+            // passing point is not important for timetabling/journey generation and double up stops might cause issue.
+            const previousStopIsPassingPoint = stops[stops.length - 1].pickup_type === 1 && stops[stops.length - 1].drop_off_type === 1
+            if (newCorrectionInd > currentLargestCorrectionInd || previousStopIsPassingPoint) {
+              stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
             }
           }
-          else {
-            stops.push(stop);
-          }
+        } else {
+          stops.push(stop);
         }
 
         prevRow = row;
@@ -111,7 +92,7 @@ export class ScheduleBuilder {
     );
   }
 
-  private createStop(row: ScheduleStopTimeRow, stopId: number, departHour: number): StopTime {
+  private createStop(row: ScheduleStopTimeRow, stopId: number, stops: StopTime[]): StopTime {
     let arrivalTime, departureTime,arrivalTimeWithMoment,departureTimeWithMoment;
     let unadvertisedArrival = false;
     let unadvertisedDeparture = false;
@@ -119,8 +100,10 @@ export class ScheduleBuilder {
     // Use the real time data
     arrivalTimeWithMoment = this.formatRealTimeStamp(row.actual_timestamp_1);
     departureTimeWithMoment = this.formatRealTimeStamp(row.actual_timestamp_2);
-    arrivalTime = this.formatTime(arrivalTimeWithMoment, departHour);
-    departureTime = this.formatTime(departureTimeWithMoment, departHour);
+
+    const originDepartureHour: number = this.findOriginDepartureHour(row, arrivalTimeWithMoment, departureTimeWithMoment, stops);
+    arrivalTime = this.formatTime(arrivalTimeWithMoment, originDepartureHour);
+    departureTime = this.formatTime(departureTimeWithMoment, originDepartureHour);
 
     // Minor formatting, as the query will return the departure of a journey as an arrival
     if (row.event_type === 'DEPARTURE' && departureTime === null) {
@@ -152,6 +135,8 @@ export class ScheduleBuilder {
       trip_id: row.id,
       arrival_time: (arrivalTime || departureTime),
       departure_time: (departureTime || arrivalTime),
+      scheduled_arrival_time: row.scheduled_arrival_time,
+      scheduled_departure_time: row.scheduled_departure_time,
       stop_id: row.crs_code,
       stop_sequence: stopId,
       stop_headsign: row.platform,
@@ -159,11 +144,45 @@ export class ScheduleBuilder {
       drop_off_type: coordinatedDropOff || dropOff,
       shape_dist_traveled: null,
       timepoint: 1,
-      correctionIndTotal: correctionIndicatorTotal
+      correctionIndTotal: correctionIndicatorTotal,
+      scheduled_location_id: row.stop_id
     };
   }
 
-  private formatRealTimeStamp(timeStamp: Object | null){
+  /**
+   * todo This method will be called X (number of stops for a train activation) times which is not efficient. However
+   * it cannot be calculated outside createStop() to avoid the bug that it default the originDepartureHour to 4. Fix
+   * when we have time.
+   */
+  private findOriginDepartureHour(row: ScheduleStopTimeRow, arrivalTimeWithMoment, departureTimeWithMoment, stops: StopTime[]): number {
+    //Code below sets the departure hour from the real time data to avoid instances of trains arriving before they leave.
+    let originDepartureHour : number;
+    if (stops.length > 0) {
+      const originStop:StopTime = stops[0];
+      originDepartureHour = originStop.departure_time
+        ? parseInt(originStop.departure_time.substr(0, 2), 10)
+        : originStop.arrival_time
+        ? parseInt(originStop.arrival_time.substr(0, 2), 10)
+        : originStop.scheduled_departure_time
+        ? parseInt(originStop.scheduled_departure_time.substr(0, 2), 10)
+        : originStop.scheduled_arrival_time
+        ? parseInt(originStop.scheduled_arrival_time.substr(0, 2), 10) : 4;
+    } else {
+      //If no real time data available, use public arrival/departure time to set departure hour.
+      originDepartureHour = arrivalTimeWithMoment
+        ? parseInt(arrivalTimeWithMoment.substr(0, 2), 10)
+        : departureTimeWithMoment
+        ? parseInt(departureTimeWithMoment.substr(0, 2), 10)
+        : row.public_departure_time
+        ? parseInt(row.public_departure_time.substr(0, 2), 10)
+        : row.public_arrival_time
+        ? parseInt(row.public_arrival_time.substr(0, 2), 10) : 4;
+    }
+
+    return originDepartureHour;
+  }
+
+  private formatRealTimeStamp(timeStamp: string | null){
     if (timeStamp===null) {
       return null;
     } else {
@@ -175,11 +194,12 @@ export class ScheduleBuilder {
   private formatTime(time: string | null, originDepartureHour: number) {
     if (time === null) return null;
 
-    const departureHour = parseInt(time.substr(0, 2), 10);
+    const currentStopDepartureHour = parseInt(time.substr(0, 2), 10);
+
 
     // if the service started after 4am and after the current stops departure hour we've probably rolled over midnight
-    if (originDepartureHour >= 4 && originDepartureHour > departureHour) {
-      return (departureHour + 24) + time.substr(2);
+    if (originDepartureHour >= 4 && originDepartureHour > currentStopDepartureHour) {
+      return (currentStopDepartureHour + 24) + time.substr(2);
     }
 
     return time;
