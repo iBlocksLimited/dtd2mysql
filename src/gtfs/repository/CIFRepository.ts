@@ -263,7 +263,8 @@ SELECT tc.cancellation_id                     AS cancellation_id,
        tc.canx_type                           AS cancel_type,
        tc.last_canx_id                        AS last_cancellation_id,
        tc.canx_order                          AS cancel_order,
-       tc.schedule_location_id                AS schedule_location_id
+       tc.schedule_location_id                AS schedule_location_id,
+       tc.canx_timestamp                      AS event_insertion_timestamp
 FROM train_activation ta
        LEFT JOIN train_cancellation tc ON tc.activation_id = ta.activation_id
        LEFT JOIN master_location mlCanx ON mlCanx.stanox = tc.loc_stanox
@@ -275,7 +276,7 @@ WHERE ta.activation_id IS NOT NULL
   AND mlCanx.crs_code != ''
   AND tm.movement_id IS NOT NULL
 GROUP BY tc.cancellation_id
-ORDER BY tc.activation_id, tc.canx_order;
+ORDER BY tc.activation_id, tc.canx_order, tc.canx_timestamp;
     `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD")]);
     console.log("TrainCancellation size:" ,results.length)
     return results.map(row => new TrainCancellation(
@@ -288,7 +289,8 @@ ORDER BY tc.activation_id, tc.canx_order;
             row.cancel_type,
             row.last_cancellation_id,
             row.cancel_order,
-            row.schedule_location_id
+            row.schedule_location_id,
+            moment(row.event_insertion_timestamp)
     ));
   }
 
@@ -306,7 +308,8 @@ SELECT tr.reinstatement_id                AS reinstatement_id,
        tr.dep_timestamp                   AS dep_timestamp,
        tr.last_rein_id                    AS last_reinstatement_id,
        tr.reinstatement_order             AS reinstatement_order,
-       tr.schedule_location_id            AS schedule_location_id
+       tr.schedule_location_id            AS schedule_location_id,
+       tr.reinstatement_timestamp         AS event_insertion_timestamp
 FROM train_activation ta
        LEFT JOIN train_reinstatement tr ON tr.activation_id = ta.activation_id
        LEFT JOIN master_location ml ON ml.stanox = tr.loc_stanox
@@ -330,7 +333,8 @@ ORDER BY tr.activation_id, tr.reinstatement_order;
             moment(row.dep_timestamp),
             row.last_reinstatement_id,
             row.reinstatement_order,
-            row.schedule_location_id
+            row.schedule_location_id,
+            moment(row.event_insertion_timestamp)
     ));
   }
 
@@ -345,7 +349,7 @@ SELECT tco.change_of_origin_id            AS change_of_origin_id,
        ta.tp_origin_timestamp             AS train_activation_date,
        GROUP_CONCAT(distinct ml.crs_code) AS change_of_origin_crs_code,
        tco.dep_timestamp                  AS dep_timestamp,
-       tco.coo_timestamp                  AS change_of_origin_inserted_time
+       tco.coo_timestamp                  AS event_insertion_timestamp
 FROM train_activation ta
        LEFT JOIN train_change_of_origin tco ON tco.activation_id = ta.activation_id
        LEFT JOIN master_location ml ON ml.stanox = tco.loc_stanox
@@ -367,7 +371,7 @@ ORDER BY tco.activation_id, tco.change_of_origin_id, tco.coo_timestamp;
             moment(row.train_activation_date),
             row.change_of_origin_crs_code.split(","),
             moment(row.dep_timestamp),
-            moment(row.change_of_origin_inserted_time)
+            moment(row.event_insertion_timestamp)
     ));
   }
 
@@ -427,6 +431,7 @@ ORDER BY tco.activation_id, tco.change_of_origin_id, tco.coo_timestamp;
   public isExcludeCancelledMovements() {
     return this.excludeCancelledMovement;
   }
+
 
 }
 
@@ -510,10 +515,10 @@ interface TrainCancellationRow {
   cancel_crs_code: CRS,
   dep_timestamp: string,
   cancel_type: TrainCancellationType,
-  cancellation_timestamp: string,
   last_cancellation_id: number | null,
   cancel_order: number,
-  schedule_location_id: number | null
+  schedule_location_id: number | null,
+  event_insertion_timestamp: string,
 }
 
 interface TrainReinstatementRow {
@@ -523,10 +528,10 @@ interface TrainReinstatementRow {
   train_activation_date: string,
   reinstatement_crs_code: CRS,
   dep_timestamp: string,
-  reinstatement_timestamp: string,
   last_reinstatement_id: number | null,
   reinstatement_order: number,
-  schedule_location_id: number | null
+  schedule_location_id: number | null,
+  event_insertion_timestamp: string,
 }
 
 interface TrainChangeOfOriginRow {
@@ -536,7 +541,7 @@ interface TrainChangeOfOriginRow {
   train_activation_date: string,
   change_of_origin_crs_code: CRS,
   dep_timestamp: string,
-  change_of_origin_inserted_time: string,
+  event_insertion_timestamp: string,
 }
 
 enum FixedLinkMode {

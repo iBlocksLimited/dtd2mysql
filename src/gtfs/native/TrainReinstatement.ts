@@ -13,6 +13,7 @@ export class TrainReinstatement implements TrainVariationEvent{
           public readonly depTimestamp: Moment,
           public readonly lastReinstatementId: number,
           public readonly reinstatementOrder: number,
-          public readonly schedule_location_id: number | null
+          public readonly schedule_location_id: number | null,
+          public readonly eventInsertionTime: Moment,
   ) {}
 }

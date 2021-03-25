@@ -14,7 +14,8 @@ export class TrainCancellation implements TrainVariationEvent{
           public readonly cancelType: TrainCancellationType,
           public readonly lastCancellationId: number,
           public readonly cancelOrder: number,
-          public readonly schedule_location_id: number | null
+          public readonly schedule_location_id: number | null,
+          public readonly eventInsertionTime: Moment,
   ) {}
 
 }

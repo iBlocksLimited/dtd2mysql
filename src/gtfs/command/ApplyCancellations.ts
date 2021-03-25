@@ -25,7 +25,7 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
   // Apply change of origin, ChangeOfOrigin already deleted any cancellation before it, so any cancellations after it
   // should also be applied to the stop times.
   for (const changeOfOrigins of changeOfOriginActivationMap.values()) {
-    changeOfOrigins.sort((a, b) => a.changeOfOriginInsertedTime.diff(b.changeOfOriginInsertedTime));
+    changeOfOrigins.sort((a, b) => a.eventInsertionTime.diff(b.eventInsertionTime));
     const latestChangeOfOrigin = changeOfOrigins[changeOfOrigins.length - 1];
     if (trustScheduleActivationMap.has(latestChangeOfOrigin.trainActivationId)) {
       const trustSchedule: Schedule = trustScheduleActivationMap.get(latestChangeOfOrigin.trainActivationId)!
@@ -149,18 +149,16 @@ export function isStation(variationEvent: TrainVariationEvent, stop: StopTime): 
 export function removeReinstatedCancellations(cancellationMap: Map<number, TrainCancellation[]>,
                                               reinstatementMap: Map<number, TrainReinstatement[]>) {
   // Here I loosely check if the crs code matches for reinstatement vs cancellation.
-  // In theory I could also check if (1) the dep_timestamp matches, (2) if reinstatement insertion time is after
-  // cancellation insertion time.
-  const filterReinstatedCancellations = (c: TrainCancellation, r: TrainReinstatement) => {
-    if (c.schedule_location_id === r.schedule_location_id) {
-      return false;
-    }
+  // In theory I could also check if the dep_timestamp matches.
+  const filterNonReinstatedCancellations = (c: TrainCancellation, r: TrainReinstatement) => {
+    if (c.eventInsertionTime.isAfter(r.eventInsertionTime)) return true; // reinstatement cannot reinstate future.
+    if (c.schedule_location_id && c.schedule_location_id === r.schedule_location_id) return false;
     return !c.eventStationCrsCodes.some(crs => r.eventStationCrsCodes.includes(crs));
   }
   for (const reinstatements of reinstatementMap.values()) {
     for (const reinstatement of reinstatements) {
       if (cancellationMap.has(reinstatement.trainActivationId)) {
-        removeVariationsWithCondition(reinstatement, cancellationMap, filterReinstatedCancellations)
+        removeVariationsWithCondition(reinstatement, cancellationMap, filterNonReinstatedCancellations)
       }
     }
   }
@@ -171,7 +169,7 @@ export function removeEventsBeforeChangeOfOrigin(cancellationMap: Map<number, Tr
                                                  changeOfOriginMap: Map<number, TrainChangeOfOrigin[]>) {
   const filterLaterEvents = (c: TrainCancellation, coo: TrainChangeOfOrigin) => c.depTimestamp.isAfter(coo.depTimestamp)
   for (const changeOfOrigins of changeOfOriginMap.values()) {
-    changeOfOrigins.sort((a, b) => a.changeOfOriginInsertedTime.diff(b.changeOfOriginInsertedTime));
+    changeOfOrigins.sort((a, b) => a.eventInsertionTime.diff(b.eventInsertionTime));
     const latestChangeOfOrigin = changeOfOrigins[changeOfOrigins.length - 1];
     if (cancellationMap.has(latestChangeOfOrigin.trainActivationId)) {
       removeVariationsWithCondition(latestChangeOfOrigin, cancellationMap, filterLaterEvents);
@@ -182,13 +180,13 @@ export function removeEventsBeforeChangeOfOrigin(cancellationMap: Map<number, Tr
   }
 }
 
-export function removeVariationsWithCondition(event: TrainVariationEvent, variationMap: Map<number, TrainVariationEvent[]>, filterFunc) {
-  const variationEvents: TrainVariationEvent[] = variationMap.get(event.trainActivationId)!
+export function removeVariationsWithCondition(event: TrainVariationEvent, variationsToClean: Map<number, TrainVariationEvent[]>, filterFunc) {
+  const variationEvents: TrainVariationEvent[] = variationsToClean.get(event.trainActivationId)!
   const cleanedEvent: TrainVariationEvent[] = variationEvents.filter(c => filterFunc(c, event));
   if (cleanedEvent.length === 0) {
-    variationMap.delete(event.trainActivationId);
+    variationsToClean.delete(event.trainActivationId);
   } else {
-    variationMap.set(event.trainActivationId, cleanedEvent);
+    variationsToClean.set(event.trainActivationId, cleanedEvent);
   }
 }
 

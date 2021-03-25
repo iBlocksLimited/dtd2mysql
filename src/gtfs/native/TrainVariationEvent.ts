@@ -11,5 +11,6 @@ export interface TrainVariationEvent {
   depTimestamp: Moment,
   lastEventId?: number | null,
   eventOrder?: number | null,
-  schedule_location_id?: number | null
+  schedule_location_id?: number | null,
+  eventInsertionTime: Moment
 }
