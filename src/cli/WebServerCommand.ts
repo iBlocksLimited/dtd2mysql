@@ -10,7 +10,7 @@ const moment = require("moment");
 
 export class WebServerCommand implements CLICommand {
   constructor(
-    private gtfsCommandSupplier: (startRange, endRange, excludeFixedLinks, excludeVstpSchedules) => OutputGTFSCommand
+    private gtfsCommandSupplier: (startRange, endRange, excludeFixedLinks, excludeVstpSchedules, excludeCancelledMovements) => OutputGTFSCommand
   ) {}
 
   async run(argv: string[]) {
@@ -36,6 +36,7 @@ export class WebServerCommand implements CLICommand {
         let endRange = moment(req.query["end"], "YYYY-MM-DD");
         let excludeFixedLinks: boolean = req.query["excludeFixedLinks"] == "true"
         let excludeVstpSchedules: boolean =  req.query["excludeVstpSchedules"] == "true"
+        let excludeCancelledMovements: boolean = req.query["excludeCancelledMovements"] == "true"
 
         fileName =
           req.query["filename"] || `gtfs-${startRange}-${endRange}.zip`;
@@ -48,7 +49,7 @@ export class WebServerCommand implements CLICommand {
           `Processing with params, startRange:${startRange}, endRange: ${endRange}, excludeFixedLinks: ${excludeFixedLinks}, 
           excludeVstpSchedule: ${excludeVstpSchedules}, filename: ${fileName}`
         );
-        let gtfsCommand = this.gtfsCommandSupplier(startRange, endRange, excludeFixedLinks, excludeVstpSchedules);
+        let gtfsCommand = this.gtfsCommandSupplier(startRange, endRange, excludeFixedLinks, excludeVstpSchedules, excludeCancelledMovements);
         res.status(201).send({
           filename: fileName
         });

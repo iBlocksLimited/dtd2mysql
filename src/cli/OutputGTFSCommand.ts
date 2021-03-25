@@ -20,6 +20,7 @@ import {
 } from "../gtfs/command/ApplyCancellations";
 import {TrainReinstatement} from "../gtfs/native/TrainReinstatement";
 import {TrainChangeOfOrigin} from "../gtfs/native/TrainChangeOfOrigin";
+import {IdGenerator} from "../gtfs/native/OverlayRecord";
 
 export class OutputGTFSCommand implements CLICommand {
   public baseDir: string;
@@ -39,18 +40,23 @@ export class OutputGTFSCommand implements CLICommand {
     if (!fs.existsSync(this.baseDir)) {
       throw new Error(`Output path ${this.baseDir} does not exist.`);
     }
-
     const associationsP: Promise<Association[]> = this.repository.getAssociations();
     const scheduleResultsP: Promise<ScheduleResults> = this.repository.getSchedules();
-    const trainCancellationsP: Promise<TrainCancellation[]> = this.repository.getTrainCancellation();
-    const trainReinstatementP: Promise<TrainReinstatement[]> = this.repository.getTrainReinstatement();
-    const trainChangeOfOriginP: Promise<TrainChangeOfOrigin[]> = this.repository.getTrainChangeOfOrigin();
     const transfersP: Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
     const stopsP: Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
     const fixedLinksP: Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
-
-    const schedules: Schedule[] = this.getSchedules(await associationsP, await trainCancellationsP, await trainReinstatementP,
-            await trainChangeOfOriginP,await scheduleResultsP);
+    let schedules: Schedule[];
+    if (this.repository.isExcludeCancelledMovements()) {
+      console.log("ExcludeCancelledMovements is set to true, will load and apply real-time train variation events  now.")
+      const trainCancellationsP: Promise<TrainCancellation[]> = this.repository.getTrainCancellation();
+      const trainReinstatementP: Promise<TrainReinstatement[]> = this.repository.getTrainReinstatement();
+      const trainChangeOfOriginP: Promise<TrainChangeOfOrigin[]> = this.repository.getTrainChangeOfOrigin();
+      schedules = this.getSchedulesWithCancellationApplied(await associationsP, await trainCancellationsP, await trainReinstatementP,
+              await trainChangeOfOriginP, await scheduleResultsP);
+    } else {
+      console.log("ExcludeCancelledMovements is set to false, will ignore real-time train variation events. ")
+      schedules = this.getSchedules(await associationsP, await scheduleResultsP);
+    }
     const [calendars, calendarDates, serviceIds]: [Calendar[], CalendarDate[], ServiceIdIndex] = createCalendar(schedules);
 
     const calendarP: Promise<void> = this.copy(calendars, "calendar.txt");
@@ -141,21 +147,28 @@ export class OutputGTFSCommand implements CLICommand {
     ]);
   }
 
-  // todo gtc really need to change all the name 'schedule' to 'train activation' or 'trust pattern' or 'trust movement pattern'
-  private getSchedules(associations: Association[], trainCancellations: TrainCancellation[], trainReinstatement: TrainReinstatement[],
+  // todo gtc really need to change all the legacy CIF terminology 'schedule' to 'train activation' or 'trust pattern' or 'trust movement pattern'
+  private getSchedules(associations: Association[], scheduleResults: ScheduleResults): Schedule[] {
+    return this.calculateSchedules(associations, scheduleResults.schedules, scheduleResults.idGenerator);
+  }
+
+  private getSchedulesWithCancellationApplied(associations: Association[], trainCancellations: TrainCancellation[], trainReinstatement: TrainReinstatement[],
                        trainChangeOfOrigin: TrainChangeOfOrigin[], scheduleResults: ScheduleResults): Schedule[] {
-    console.log("association overlays: ", associations.length);
-    const processedAssociations = <AssociationIndex>applyOverlays(associations);
-    console.log("train cancellations: ", trainCancellations.length);
-    console.log("schedule overlays: ", scheduleResults.schedules.length);
     const schedulesWithCancellationApplied: Schedule[] = applyTrainVariationEvents(scheduleResults.schedules,
             trainCancellations, trainReinstatement, trainChangeOfOrigin);
-    const processedSchedules = <ScheduleIndex>convertToOverlayIndex(schedulesWithCancellationApplied);
-    const associatedSchedules = applyAssociations(processedSchedules, processedAssociations, scheduleResults.idGenerator);
+    return this.calculateSchedules(associations, schedulesWithCancellationApplied, scheduleResults.idGenerator);
+  }
+
+  private calculateSchedules(associations: Association[], schedules: Schedule[], idGenerator: IdGenerator): Schedule[] {
+    console.log("association overlays: ", associations.length);
+    const processedAssociations = <AssociationIndex>applyOverlays(associations);
+    console.log("schedule overlays: ", schedules.length);
+    const processedSchedules = <ScheduleIndex>convertToOverlayIndex(schedules);
+    const associatedSchedules = applyAssociations(processedSchedules, processedAssociations, idGenerator);
     console.log("merge schedules", associatedSchedules.length)
     const mergedSchedules = <Schedule[]>mergeSchedules(associatedSchedules);
-
     return mergedSchedules;
+
   }
 
 }

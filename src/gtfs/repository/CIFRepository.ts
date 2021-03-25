@@ -25,6 +25,7 @@ export class CIFRepository {
     private readonly endRange,
     private readonly excludeFixedLinks: boolean = false,
     private readonly excludeVstpSchedules: boolean = false,
+    private readonly excludeCancelledMovement: boolean = false,
   ) {}
 
 
@@ -423,6 +424,9 @@ ORDER BY tco.activation_id, tco.change_of_origin_id, tco.coo_timestamp;
     return dates;
   }
 
+  public isExcludeCancelledMovements() {
+    return this.excludeCancelledMovement;
+  }
 
 }
 
