@@ -112,6 +112,7 @@ export class OutputGTFSCommand implements CLICommand {
         delete r.correctionIndTotal;
         delete r.scheduled_arrival_time;
         delete r.scheduled_departure_time;
+        delete r.scheduled_location_id;
         stopTimes.write(r)
       });
     }

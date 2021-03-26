@@ -31,10 +31,10 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
       const trustSchedule: Schedule = trustScheduleActivationMap.get(latestChangeOfOrigin.trainActivationId)!
       const stopTimes: StopTime[] = trustSchedule.stopTimes;
       if (stopTimes.length > 0) {
-        let foundChangeOfOrigin = false;
+        let findChangeOfOrigin = false;
         for (const [index, stop] of stopTimes.entries()) {
           if (isChangeOfOriginStation(latestChangeOfOrigin, stop)) {
-            foundChangeOfOrigin = true;
+            findChangeOfOrigin = true;
             stop.arrival_time = stop.departure_time;
             stop.pickup_type = 0;
             stop.drop_off_type = 1;
@@ -42,12 +42,12 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
             break;
           }
         }
-        if (!foundChangeOfOrigin) {
-          // todo gtc maybe consider to insert the change of origin station to the first of movement data to
-          //  become the new origin.
-          console.log(`Cannot find change of origin station for 
-              train change of origin id: ${latestChangeOfOrigin.id}, train activation id: ${latestChangeOfOrigin.trainActivationId}`)
-        }
+        // if (!findChangeOfOrigin) {
+        //   // todo gtc maybe consider to insert the change of origin station to the first of movement data (there is
+        //   //  probably a off-route before first movement which got excluded in the query result), to become the new origin.
+        //   console.log(`Cannot find change of origin station for
+        //       train change of origin id: ${latestChangeOfOrigin.id}, train activation id: ${latestChangeOfOrigin.trainActivationId}`);
+        // }
       }
     }
   }
@@ -62,7 +62,7 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
           trustScheduleActivationMap.delete(cancellation.trainActivationId);
           break;
         case TrainCancellationType.EnRoute:
-        case TrainCancellationType.AtOrigin:
+        case TrainCancellationType.AtOrigin: {
           const trustSchedule: Schedule = trustScheduleActivationMap.get(cancellation.trainActivationId)!;
           const stopTimes: StopTime[] = trustSchedule.stopTimes;
           if (stopTimes.length > 0) {
@@ -72,10 +72,10 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
             } else {
               // 2. If the cancellation is the in-middle (mostly the second to last, the last would be estimated termination station) station, we set that
               // station as the destination station and remove the last termination event.
-              let foundCancellation = false;
+              let findCancellationStation = false;
               for (const [index, stop] of stopTimes.entries()) {
                 if (isCancellationStation(cancellation, stop)) {
-                  foundCancellation = true;
+                  findCancellationStation = true;
                   stop.departure_time = stop.arrival_time;
                   stop.pickup_type = 1;
                   stop.drop_off_type = 0;
@@ -83,18 +83,54 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
                   break;
                 }
               }
-              if (!foundCancellation) {
-                // todo gtc maybe consider to check cancellation depTimestamp, if the depTimestamp is before the
-                //  first movement, we can safely cancel the rest movements.
-                console.log(`Cannot find cancellation station for 
-                train cancellation id: ${cancellation.id}, train activation id: ${cancellation.trainActivationId}`)
+              // if (!findCancellationStation) {
+              //   // todo gtc maybe consider to check cancellation depTimestamp, if the depTimestamp is before the
+              //   //  first movement (there is probably a off-route before first movement which got excluded in the query result),
+              //   //  we can safely cancel the rest movements (this might be dangerous to do).
+              //   console.log(`Cannot find cancellation station for
+              //   train cancellation id: ${cancellation.id}, train activation id: ${cancellation.trainActivationId}`);
+              // }
+            }
+          }
+          break;
+        }
+        case TrainCancellationType.OutOfPlan: {
+          const trustSchedule: Schedule = trustScheduleActivationMap.get(cancellation.trainActivationId)!;
+          const stopTimes: StopTime[] = trustSchedule.stopTimes;
+          let findCancellationStation = false;
+          for (const [index, stop] of stopTimes.entries()) {
+            if (isCancellationStation(cancellation, stop)) {
+              findCancellationStation = true;
+              stop.departure_time = stop.arrival_time;
+              stop.pickup_type = 1;
+              stop.drop_off_type = 0;
+              stopTimes.splice(index + 1);
+              break;
+            }
+          }
+          if (!findCancellationStation) {
+            // There is probably an off-route movement before last movement which got excluded in the query result.
+            // Therefore we check if the last stop is an estimated stop and if the cancellation depTimeStamp is after
+            // second to last stop departure time and before the last stop arrival time.
+            // If all true, we replace the estimated destination stop with cancellation stop.
+            const lastStop = stopTimes[stopTimes.length - 1]
+            const lastStopIsDestination = lastStop.pickup_type === 1 && lastStop.drop_off_type === 0;
+            const secondToLastStop = stopTimes[stopTimes.length - 2]
+            const eventCrsCode = cancellation.eventStationCrsCodes[0];
+            if (eventCrsCode && lastStop && lastStopIsDestination && secondToLastStop && lastStop.correctionIndTotal < 0) {
+              const activationDate: string = cancellation.depTimestamp.format('YYYY-MM-DD');
+              const secondToLastDepartureTime = convertStopTimeToMoment(activationDate, secondToLastStop.departure_time);
+              const lastArrivalTime = convertStopTimeToMoment(activationDate, lastStop.arrival_time);
+              const cancellationDepTime = cancellation.depTimestamp;
+              if (cancellationDepTime.isSameOrAfter(secondToLastDepartureTime) && cancellationDepTime.isSameOrBefore(lastArrivalTime)) {
+                lastStop.arrival_time = cancellation.depTimestamp.format("HH:mm:ss");
+                lastStop.departure_time = cancellation.depTimestamp.format("HH:mm:ss");
+                lastStop.stop_id = eventCrsCode;
               }
             }
           }
           break;
-        case TrainCancellationType.OutOfPlan:
-          // todo gtc don't know what to do!
-          break;
+        }
         default:
           console.warn(`Unseen cancellation type: ${cancellation.cancelType} found for 
             train_cancellation id: ${cancellation.id} train activation id: ${cancellation.trainActivationId}`);
@@ -130,20 +166,21 @@ export function isStation(variationEvent: TrainVariationEvent, stop: StopTime): 
     } else if (stop.scheduled_arrival_time) {
       stopTimeToCompare = moment(activationDate + ' ' + stop.scheduled_arrival_time);
     } else if (stop.departure_time) {
-      let departureHour: number = parseInt(stop.departure_time.substr(0, 2), 10)
-      let timeToCompare: string = departureHour >= 24 ? departureHour - 24 + stop.departure_time.substr(2) : stop.departure_time;
-      stopTimeToCompare = moment(activationDate + ' ' + timeToCompare);
+      stopTimeToCompare = convertStopTimeToMoment(activationDate, stop.departure_time);
     } else if (stop.arrival_time) {
-      let arrivalHour: number = parseInt(stop.arrival_time.substr(0, 2), 10);
-      let timeToCompare: string = arrivalHour >= 24 ? arrivalHour - 24 + stop.departure_time.substr(2) : stop.departure_time;
-      stopTimeToCompare = moment(activationDate + ' ' + timeToCompare);
+      stopTimeToCompare = convertStopTimeToMoment(activationDate, stop.arrival_time);
     }
-
     if (stopTimeToCompare) {
       return Math.abs(stopTimeToCompare.diff(variationEvent.depTimestamp, 'seconds')) < 900;
     }
   }
   return false;
+}
+
+export function convertStopTimeToMoment(activationDate: string, stopTime: string) {
+  let hour: number = parseInt(stopTime.substr(0, 2), 10)
+  let timeStamp: string = hour >= 24 ? hour - 24 + stopTime.substr(2) : stopTime;
+  return moment(activationDate + ' ' + timeStamp);
 }
 
 export function removeReinstatedCancellations(cancellationMap: Map<number, TrainCancellation[]>,
