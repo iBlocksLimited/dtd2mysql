@@ -178,9 +178,18 @@ export function isStation(variationEvent: TrainVariationEvent, stop: StopTime): 
 }
 
 export function convertStopTimeToMoment(activationDate: string, stopTime: string) {
+  let date = moment(activationDate, 'YYYY-MM-DD');
   let hour: number = parseInt(stopTime.substr(0, 2), 10)
-  let timeStamp: string = hour >= 24 ? hour - 24 + stopTime.substr(2) : stopTime;
-  return moment(activationDate + ' ' + timeStamp);
+  let timeStamp: string;
+  if (hour >= 24) {
+    date.add(1, 'days');
+    hour = hour - 24;
+    timeStamp = hour.toLocaleString('en-GB', {minimumIntegerDigits: 2}) + stopTime.substr(2)
+  } else {
+    timeStamp = stopTime;
+  }
+
+  return moment(date.format('YYYY-MM-DD') + ' ' + timeStamp);
 }
 
 export function removeReinstatedCancellations(cancellationMap: Map<number, TrainCancellation[]>,

@@ -363,7 +363,7 @@ WHERE ta.activation_id IS NOT NULL
 GROUP BY tco.change_of_origin_id
 ORDER BY tco.activation_id, tco.change_of_origin_id, tco.coo_timestamp;
     `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD")]);
-    console.log("TrainChangeOfIrigin size:" ,results.length)
+    console.log("TrainChangeOfOrigin size:" ,results.length)
     return results.map(row => new TrainChangeOfOrigin(
             row.change_of_origin_id,
             row.train_activation_id,
