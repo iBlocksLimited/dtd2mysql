@@ -46,7 +46,7 @@ describe("ApplyAssociations", () => {
       idGenerator()
     );
 
-    const [result1, result2, other] = resultByTuid["A_B"];
+    const [result1, result2] = resultByTuid["A_B"];
 
     // make sure that it only matches base1 to assoc1 and base2 to assoc2
     chai.expect(result1.tuid).to.equal("A_B");
@@ -76,7 +76,6 @@ describe("ApplyAssociations", () => {
     chai.expect(result2.stopTimes[3].stop_id).to.equal("SEA");
     chai.expect(result2.stopTimes[3].stop_sequence).to.equal(4);
     chai.expect(result2.stopTimes[3].departure_time).to.equal("25:30:00");
-    chai.expect(other).to.be.undefined;
   });
 
 });

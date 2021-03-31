@@ -271,12 +271,6 @@ describe("Association", () => {
     chai.expect(after.tuid).to.equal("B");
     chai.expect(after.calendar.runsFrom.isSame("2017-08-17")).to.equal(true);
     chai.expect(after.calendar.runsTo.isSame("2017-09-16")).to.equal(true);
-    chai.expect(ex1.tuid).to.equal("B");
-    chai.expect(ex1.calendar.runsFrom.isSame("2017-08-01")).to.equal(true);
-    chai.expect(ex1.calendar.runsTo.isSame("2017-08-01")).to.equal(true);
-    chai.expect(ex2.tuid).to.equal("B");
-    chai.expect(ex2.calendar.runsFrom.isSame("2017-08-05")).to.equal(true);
-    chai.expect(ex2.calendar.runsTo.isSame("2017-08-05")).to.equal(true);
   });
 
 });

@@ -34,17 +34,15 @@ export function applyAssociations(schedulesByTuid: ScheduleIndex,
 
         // We have to check that the association _actually_ goes through the association point
         if (baseSchedules.length > 0 && assocSchedule.stopAt(association.assocLocation) && baseSchedules[0].stopAt(association.assocLocation)) {
-          if (assocSchedule.calendar.calendarOnSameDate(baseSchedules[0].calendar)) {
-            const [replacement, ...associatedSchedules] = association.apply(baseSchedules[0], assocSchedule, idGenerator);
+          const [replacement, ...associatedSchedules] = association.apply(baseSchedules[0], assocSchedule, idGenerator);
 
-            // add the merged base and associated schedule to the TUID index
-            (schedulesByTuid[replacement.tuid] = schedulesByTuid[replacement.tuid] || []).push(replacement);
+          // add the merged base and associated schedule to the TUID index
+          (schedulesByTuid[replacement.tuid] = schedulesByTuid[replacement.tuid] || []).push(replacement);
 
-            // remove the original associated schedule and replace with any substitute schedules created
-            schedulesByTuid[assocSchedule.tuid].splice(
-                    schedulesByTuid[assocSchedule.tuid].indexOf(assocSchedule), 1, ...associatedSchedules
-            );
-          }
+          // remove the original associated schedule and replace with any substitute schedules created
+          schedulesByTuid[assocSchedule.tuid].splice(
+                  schedulesByTuid[assocSchedule.tuid].indexOf(assocSchedule), 1, ...associatedSchedules
+          );
         }
       }
     }

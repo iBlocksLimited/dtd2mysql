@@ -68,6 +68,10 @@ export class Association implements OverlayRecord {
         schedules.push(assoc.clone(after, idGenerator.next().value));
       }
     }
+    // Remove the create schedules for exclude days process as we are using TRUST real-time data now, if we create schedule for
+    // associated excluded days, we will generate incorrect data for the associated schedule.
+    // e.g. we are applying association for TRUST schedule on 2021-01-04 and the cif_association has an exclude date 2021-01-01,
+    // we cannot just create a new schedule on 2021-01-01.
     return schedules;
   }
 
