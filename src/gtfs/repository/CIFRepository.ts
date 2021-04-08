@@ -26,6 +26,7 @@ export class CIFRepository {
     private readonly excludeFixedLinks: boolean = false,
     private readonly excludeVstpSchedules: boolean = false,
     private readonly excludeCancelledMovement: boolean = false,
+    private readonly readTransferFromConfigFile: boolean = false,
   ) {}
 
 
@@ -430,6 +431,10 @@ ORDER BY tco.activation_id, tco.change_of_origin_id, tco.coo_timestamp;
 
   public isExcludeCancelledMovements() {
     return this.excludeCancelledMovement;
+  }
+
+  public isReadTransferFromConfigFile() {
+    return this.readTransferFromConfigFile;
   }
 
 

@@ -10,17 +10,15 @@ import {createCalendar, ServiceIdIndex} from "../gtfs/command/CreateCalendar";
 import {ScheduleResults} from "../gtfs/repository/ScheduleBuilder";
 import {GTFSOutput} from "../gtfs/output/GTFSOutput";
 import * as fs from "fs";
-import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
-import streamToPromise = require("stream-to-promise");
 import {Calendar} from "../gtfs/file/Calendar";
 import {CalendarDate} from "../gtfs/file/CalendarDate";
 import {TrainCancellation} from "../gtfs/native/TrainCancellation";
-import {
-  applyTrainVariationEvents
-} from "../gtfs/command/ApplyCancellations";
+import {applyTrainVariationEvents} from "../gtfs/command/ApplyCancellations";
 import {TrainReinstatement} from "../gtfs/native/TrainReinstatement";
 import {TrainChangeOfOrigin} from "../gtfs/native/TrainChangeOfOrigin";
 import {IdGenerator} from "../gtfs/native/OverlayRecord";
+import streamToPromise = require("stream-to-promise");
+const AWS = require("aws-sdk");
 
 export class OutputGTFSCommand implements CLICommand {
   public baseDir: string;
@@ -42,7 +40,7 @@ export class OutputGTFSCommand implements CLICommand {
     }
     const associationsP: Promise<Association[]> = this.repository.getAssociations();
     const scheduleResultsP: Promise<ScheduleResults> = this.repository.getSchedules();
-    const transfersP: Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
+    const transfersP: Promise<void> = this.handleTransferData(argv);
     const stopsP: Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
     const fixedLinksP: Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
     let schedules: Schedule[];
@@ -78,6 +76,55 @@ export class OutputGTFSCommand implements CLICommand {
   }
 
   /**
+   * Read transfer data from either a config file stored in s3 bucket or database, and output to transfer.txt
+   */
+  private async handleTransferData(argv) {
+    console.log("Start to load transfer data.")
+    let transfersP: Promise<void>;
+    let transferDataS3: string = '';
+    if (this.repository.isReadTransferFromConfigFile()) {
+      try {
+        transferDataS3 = await this.readTransferFromS3(argv[5], argv[6]);
+      } catch (err) {
+        console.error(`Cannot load transfer config file '${argv[6]}' from '${argv[5]}', the error is: ${err}, 
+        will fall back to read transfer data from database.`);
+      }
+    }
+    if (transferDataS3) {
+      transfersP = this.copyTransferFromS3(transferDataS3, "transfers.txt");
+    } else {
+      transfersP = this.copy(this.repository.getTransfers(), "transfers.txt");
+    }
+    return transfersP;
+  }
+
+
+  /**
+   * Read transfer data from s3 bucket.
+   */
+  private readTransferFromS3(bucketName, transferConfigFileKey): Promise<string> {
+    console.log(`Loading transfer data from S3 bucket '${bucketName}' with object key '${transferConfigFileKey}'`)
+    if(!(bucketName && transferConfigFileKey)) {
+      throw new Error("The bucket name and transfer config file key cannot be null when loading transfer data from S3 bucket. \n" +
+              "Correct usage is `dtd2mysql --gtfs-server [working directory] [default s3 upload bucket] [transferConfigFileS3Bucket] [transferConfigFileS3ObjectKey]`");
+    }
+    return new Promise((resolve, reject) => {
+      let s3Params = {
+        Bucket: bucketName,
+        Key: transferConfigFileKey,
+      };
+      let s3 = new AWS.S3();
+      s3.getObject(s3Params, (err, data) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(data.Body.toString());
+        }
+      });
+    })
+  }
+
+  /**
    * Map SQL records to a file
    */
   private async copy(results: object[] | Promise<object[]>, filename: string): Promise<void> {
@@ -89,6 +136,17 @@ export class OutputGTFSCommand implements CLICommand {
     output.end();
 
     return streamToPromise(output);
+  }
+
+  private copyTransferFromS3(results: string, filename: string): Promise<void> {
+    console.log("Writing " + filename);
+    let writeStream = fs.createWriteStream(this.baseDir + filename);
+    writeStream.write(results);
+    writeStream.on('finish', () => {
+      console.log("Wrote all transfer data to file");
+    })
+    writeStream.end();
+    return streamToPromise(writeStream);
   }
 
   /**
@@ -154,7 +212,7 @@ export class OutputGTFSCommand implements CLICommand {
   }
 
   private getSchedulesWithCancellationApplied(associations: Association[], trainCancellations: TrainCancellation[], trainReinstatement: TrainReinstatement[],
-                       trainChangeOfOrigin: TrainChangeOfOrigin[], scheduleResults: ScheduleResults): Schedule[] {
+                                              trainChangeOfOrigin: TrainChangeOfOrigin[], scheduleResults: ScheduleResults): Schedule[] {
     const schedulesWithCancellationApplied: Schedule[] = applyTrainVariationEvents(scheduleResults.schedules,
             trainCancellations, trainReinstatement, trainChangeOfOrigin);
     return this.calculateSchedules(associations, schedulesWithCancellationApplied, scheduleResults.idGenerator);
