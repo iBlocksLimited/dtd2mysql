@@ -21,14 +21,21 @@ export class CIFRepository {
     private readonly db: DatabaseConnection,
     private readonly stream,
     private readonly stationCoordinates: StationCoordinates,
-    public readonly startRange,
-    public readonly endRange,
+    private readonly startRange,
+    private readonly endRange,
     private readonly excludeFixedLinks: boolean = false,
     private readonly excludeVstpSchedules: boolean = false,
     private readonly excludeCancelledMovement: boolean = false,
   ) {}
 
+  public get startDate() {
+    return this.startRange;
+  }
 
+  public get endDate() {
+    return this.endRange;
+  }
+  
   /**
    * Return the interchange time between each station
    */
