@@ -29,7 +29,14 @@ export class CIFRepository {
     private readonly readTransferFromConfigFile: boolean = false,
   ) {}
 
+  public get startDate() {
+    return this.startRange;
+  }
 
+  public get endDate() {
+    return this.endRange;
+  }
+  
   /**
    * Return the interchange time between each station
    */
