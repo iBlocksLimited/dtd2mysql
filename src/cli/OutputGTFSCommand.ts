@@ -21,6 +21,7 @@ import {
 import {TrainReinstatement} from "../gtfs/native/TrainReinstatement";
 import {TrainChangeOfOrigin} from "../gtfs/native/TrainChangeOfOrigin";
 import {IdGenerator} from "../gtfs/native/OverlayRecord";
+import {FeedInfo} from "../gtfs/file/FeedInfo";
 
 export class OutputGTFSCommand implements CLICommand {
   public baseDir: string;
@@ -64,6 +65,9 @@ export class OutputGTFSCommand implements CLICommand {
     const tripsP: Promise<void> = this.copyTrips(schedules, serviceIds);
     const agencyP: Promise<void> = this.copy(agencies, "agency.txt");
 
+    const feedInfo:FeedInfo[] = [this.getFeedInfo()];
+    const feedInfoP: Promise<void> = this.copy(feedInfo, "feed_info.txt");
+
     await Promise.all([
       agencyP,
       transfersP,
@@ -72,6 +76,7 @@ export class OutputGTFSCommand implements CLICommand {
       calendarDatesP,
       tripsP,
       fixedLinksP,
+      feedInfoP,
       this.repository.end(),
       this.output.end()
     ]);
@@ -170,6 +175,21 @@ export class OutputGTFSCommand implements CLICommand {
     const mergedSchedules = <Schedule[]>mergeSchedules(associatedSchedules);
     return mergedSchedules;
 
+  }
+
+  private getFeedInfo(): FeedInfo{
+    const creationDate = new Date().toISOString().split('.')[0]+"Z";
+    const startDate = new Date(this.repository.startDate).toISOString().substring(0,10);
+    const endDate = new Date(this.repository.endDate).toISOString().substring(0,10);
+    const feedInfo = {
+      feed_publisher_name: "iblocks",
+      feed_publisher_url: "iblocks.co.uk",
+      feed_lang: "English",
+      feed_start_date: startDate,
+      feed_end_date: endDate,
+      feed_version: creationDate
+    };
+    return feedInfo;
   }
 
 }
