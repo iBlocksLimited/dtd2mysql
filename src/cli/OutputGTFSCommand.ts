@@ -13,6 +13,7 @@ import * as fs from "fs";
 import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
 import {Calendar} from "../gtfs/file/Calendar";
 import {CalendarDate} from "../gtfs/file/CalendarDate";
+import {FeedInfo} from "../gtfs/file/FeedInfo";
 
 const util = require('util');
 const stream = require('stream');
@@ -51,6 +52,9 @@ export class OutputGTFSCommand implements CLICommand {
     const calendarDatesP:Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
     const tripsP:Promise<void> = this.copyTrips(schedules, serviceIds);
 
+    const feedInfo:FeedInfo[] = [this.getFeedInfo()];
+    const feedInfoP: Promise<void> = this.copy(feedInfo, "feed_info.txt");
+
     await Promise.all([
       agencyP,
       transfersP,
@@ -59,6 +63,7 @@ export class OutputGTFSCommand implements CLICommand {
       calendarDatesP,
       tripsP,
       fixedLinksP,
+      feedInfoP,
       this.repository.end(),
       this.output.end()
     ]);
@@ -124,6 +129,21 @@ export class OutputGTFSCommand implements CLICommand {
     const schedules = addLateNightServices(mergedSchedules, scheduleResults.idGenerator);
 
     return schedules;
+  }
+
+  private getFeedInfo(): FeedInfo{
+    const creationDate = new Date().toISOString().split('.')[0]+"Z";
+    const startDate = this.repository.startDate.format('YYYYMMDD');
+    const endDate = this.repository.endDate.format('YYYYMMDD');
+    const feedInfo = {
+      feed_publisher_name: "iblocks",
+      feed_publisher_url: "iblocks.co.uk",
+      feed_lang: "English",
+      feed_start_date: startDate,
+      feed_end_date: endDate,
+      feed_version: creationDate
+    };
+    return feedInfo;
   }
 
 }
