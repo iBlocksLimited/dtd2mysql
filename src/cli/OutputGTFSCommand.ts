@@ -136,7 +136,7 @@ export class OutputGTFSCommand implements CLICommand {
     const startDate = this.repository.startDate.format('YYYYMMDD');
     const endDate = this.repository.endDate.format('YYYYMMDD');
     const feedInfo = {
-      feed_publisher_name: "iblocks",
+      feed_publisher_name: "CIF",
       feed_publisher_url: "iblocks.co.uk",
       feed_lang: "English",
       feed_start_date: startDate,
