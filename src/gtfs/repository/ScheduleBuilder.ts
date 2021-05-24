@@ -1,4 +1,4 @@
-import {IdGenerator, STP} from "../native/OverlayRecord";
+import {IdGenerator} from "../native/OverlayRecord";
 import {Schedule} from "../native/Schedule";
 import {RouteType} from "../file/Route";
 import {Days, ScheduleCalendar} from "../native/ScheduleCalendar";
@@ -33,7 +33,7 @@ export class ScheduleBuilder {
           stops = [];
         }
 
-        const stop = this.createStop(row, stops.length + 1, stops);
+        const stop = this.createStop(row, stops.length + 1);
 
         if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
           if (stop.pickup_type === 0 || stop.drop_off_type === 0) {
@@ -92,23 +92,24 @@ export class ScheduleBuilder {
     );
   }
 
-  private createStop(row: ScheduleStopTimeRow, stopId: number, stops: StopTime[]): StopTime {
-    let arrivalTime, departureTime,arrivalTimeWithMoment,departureTimeWithMoment;
+  private createStop(row: ScheduleStopTimeRow, stopId: number): StopTime {
+    let arrivalTimestampMoment, departureTimestampMoment, formattedArrivalTime,
+            formattedDepartureTime;
     let unadvertisedArrival = false;
     let unadvertisedDeparture = false;
 
     // Use the real time data
-    arrivalTimeWithMoment = this.formatRealTimeStamp(row.actual_timestamp_1);
-    departureTimeWithMoment = this.formatRealTimeStamp(row.actual_timestamp_2);
+    arrivalTimestampMoment = this.convertActualTimestampToMoment(row.actual_timestamp_1);
+    departureTimestampMoment = this.convertActualTimestampToMoment(row.actual_timestamp_2);
 
-    const originDepartureHour: number = this.findOriginDepartureHour(row, arrivalTimeWithMoment, departureTimeWithMoment, stops);
-    arrivalTime = this.formatTime(arrivalTimeWithMoment, originDepartureHour);
-    departureTime = this.formatTime(departureTimeWithMoment, originDepartureHour);
+    // Format dateTime to timestamp and handle possible midnight rollover.
+    formattedArrivalTime = this.formatTime(arrivalTimestampMoment, row);
+    formattedDepartureTime = this.formatTime(departureTimestampMoment, row);
 
     // Minor formatting, as the query will return the departure of a journey as an arrival
-    if (row.event_type === 'DEPARTURE' && departureTime === null) {
-      departureTime = arrivalTime;
-      arrivalTime = null;
+    if (row.event_type === 'DEPARTURE' && formattedDepartureTime === null) {
+      formattedDepartureTime = formattedArrivalTime;
+      formattedArrivalTime = null;
     }
 
     if(row.public_arrival_time == "00:00:00") {
@@ -125,16 +126,16 @@ export class ScheduleBuilder {
     const dropOff = dropOffActivities.find(a => activities.includes(a)) && !unadvertisedArrival ? 0 : 1;
 
     // Mitigating against timestamps at passing stations which have recorded the departure time before the arrival time.
-    if (departureTime !== null && departureTime < arrivalTime){
-      arrivalTime = departureTime;
+    if (formattedDepartureTime !== null && formattedDepartureTime < formattedArrivalTime){
+      formattedArrivalTime = formattedDepartureTime;
     }
 
     // Calculate the TRUST correction indicator total:
     const correctionIndicatorTotal = +row.correction_ind_1 + +row.correction_ind_2;
     return {
       trip_id: row.id,
-      arrival_time: (arrivalTime || departureTime),
-      departure_time: (departureTime || arrivalTime),
+      arrival_time: (formattedArrivalTime || formattedDepartureTime),
+      departure_time: (formattedDepartureTime || formattedArrivalTime),
       scheduled_arrival_time: row.scheduled_arrival_time,
       scheduled_departure_time: row.scheduled_departure_time,
       stop_id: row.crs_code,
@@ -149,60 +150,26 @@ export class ScheduleBuilder {
     };
   }
 
-  /**
-   * todo This method will be called X (number of stops for a train activation) times which is not efficient. However
-   * it cannot be calculated outside createStop() to avoid the bug that it default the originDepartureHour to 4. Fix
-   * when we have time.
-   */
-  private findOriginDepartureHour(row: ScheduleStopTimeRow, arrivalTimeWithMoment, departureTimeWithMoment, stops: StopTime[]): number {
-    //Code below sets the departure hour from the real time data to avoid instances of trains arriving before they leave.
-    let originDepartureHour : number;
-    if (stops.length > 0) {
-      const originStop:StopTime = stops[0];
-      originDepartureHour = originStop.departure_time
-        ? parseInt(originStop.departure_time.substr(0, 2), 10)
-        : originStop.arrival_time
-        ? parseInt(originStop.arrival_time.substr(0, 2), 10)
-        : originStop.scheduled_departure_time
-        ? parseInt(originStop.scheduled_departure_time.substr(0, 2), 10)
-        : originStop.scheduled_arrival_time
-        ? parseInt(originStop.scheduled_arrival_time.substr(0, 2), 10) : 4;
-    } else {
-      //If no real time data available, use public arrival/departure time to set departure hour.
-      originDepartureHour = arrivalTimeWithMoment
-        ? parseInt(arrivalTimeWithMoment.substr(0, 2), 10)
-        : departureTimeWithMoment
-        ? parseInt(departureTimeWithMoment.substr(0, 2), 10)
-        : row.public_departure_time
-        ? parseInt(row.public_departure_time.substr(0, 2), 10)
-        : row.public_arrival_time
-        ? parseInt(row.public_arrival_time.substr(0, 2), 10) : 4;
-    }
-
-    return originDepartureHour;
-  }
-
-  private formatRealTimeStamp(timeStamp: string | null){
-    if (timeStamp===null) {
+  private convertActualTimestampToMoment(datetime: string | null) {
+    if (datetime===null) {
       return null;
     } else {
-      timeStamp = moment(timeStamp).format("HH:mm:ss");
-      return timeStamp;
+      return moment(datetime);
     }
   }
 
-  private formatTime(time: string | null, originDepartureHour: number) {
-    if (time === null) return null;
+  private formatTime(timeStampMoment: moment.Moment | null, row: ScheduleStopTimeRow) {
+    if (timeStampMoment === null) return null;
+    const currentStopDepartureHour = parseInt(timeStampMoment.format("H"));
 
-    const currentStopDepartureHour = parseInt(time.substr(0, 2), 10);
-
-
-    // if the service started after 4am and after the current stops departure hour we've probably rolled over midnight
-    if (originDepartureHour >= 4 && originDepartureHour > currentStopDepartureHour) {
-      return (currentStopDepartureHour + 24) + time.substr(2);
+    const eventDateMoment: moment.Moment = moment(row.event_date, "YYYY-MM-DD");
+    // We get both date and time from TRUST movement actual_timestamp, therefore we can just use that date to compare
+    // with event_date to check if there is a midnight rollover and adjust the timestamp to 48 hour clock accordingly.
+    if (timeStampMoment.isAfter(eventDateMoment, 'day') ) {
+      return (currentStopDepartureHour + 24) + timeStampMoment.format("HH:mm:ss").substr(2);
     }
 
-    return time;
+    return timeStampMoment.format("HH:mm:ss");
   }
 
   public get results(): ScheduleResults {
