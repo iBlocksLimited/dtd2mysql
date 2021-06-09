@@ -11,9 +11,13 @@ import {ScheduleResults} from "../gtfs/repository/ScheduleBuilder";
 import {GTFSOutput} from "../gtfs/output/GTFSOutput";
 import * as fs from "fs";
 import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
-import streamToPromise = require("stream-to-promise");
 import {Calendar} from "../gtfs/file/Calendar";
 import {CalendarDate} from "../gtfs/file/CalendarDate";
+
+const util = require('util');
+const stream = require('stream');
+const finished = util.promisify(stream.finished);
+
 
 export class OutputGTFSCommand implements CLICommand {
   public baseDir: string;
@@ -37,7 +41,6 @@ export class OutputGTFSCommand implements CLICommand {
     const scheduleResultsP:Promise<ScheduleResults> = this.repository.getSchedules();
     const transfersP:Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
     const stopsP:Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
-    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
     const fixedLinksP:Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
     
     const schedules:Schedule[] = this.getSchedules(await associationsP, await scheduleResultsP);
@@ -46,6 +49,7 @@ export class OutputGTFSCommand implements CLICommand {
     const calendarP:Promise<void> = this.copy(calendars, "calendar.txt");
     const calendarDatesP:Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
     const tripsP:Promise<void> = this.copyTrips(schedules, serviceIds);
+    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
 
     await Promise.all([
       agencyP,
@@ -71,7 +75,7 @@ export class OutputGTFSCommand implements CLICommand {
     rows.forEach(row => output.write(row));
     output.end();
 
-    return streamToPromise(output);
+    return finished(output);
   }
 
   /**
@@ -94,8 +98,24 @@ export class OutputGTFSCommand implements CLICommand {
       schedule.stopTimes.forEach(r => stopTimes.write(r));
     }
 
+    let knownAgencies: string[] = agencies.map(agency => agency.agency_id);
     for (const route of Object.values(routes)) {
       routeFile.write(route);
+
+      // In case we have new agency in the routes that doesn't exist in our agencies list, we create the agency with default info.
+      if (!knownAgencies.includes(route['agency_id'])) {
+        const createdAgency = {
+          agency_id: route['agency_id'],
+          agency_name: `${route['agency_id']} operator`,
+          agency_url: "https://www.google.com",
+          agency_timezone: "Europe/London",
+          agency_lang: "en",
+          agency_phone: "",
+          agency_fare_url: null
+        };
+        agencies.splice(-1, 0, createdAgency);
+        knownAgencies.push(route['agency_id']);
+      }
     }
 
     trips.end();
@@ -103,9 +123,9 @@ export class OutputGTFSCommand implements CLICommand {
     routeFile.end();
 
     return Promise.all([
-      streamToPromise(trips),
-      streamToPromise(stopTimes),
-      streamToPromise(routeFile),
+      finished(trips),
+      finished(stopTimes),
+      finished(routeFile),
     ]);
   }
 
@@ -115,7 +135,7 @@ export class OutputGTFSCommand implements CLICommand {
     console.log("schedule overlays: ", scheduleResults.schedules.length);
     const processedSchedules = <ScheduleIndex>applyOverlays(scheduleResults.schedules, scheduleResults.idGenerator);
     const associatedSchedules = applyAssociations(processedSchedules, processedAssociations, scheduleResults.idGenerator);
-    console.log("merge schedules", associatedSchedules.length)
+    console.log("merge schedules", Object.keys(associatedSchedules).length)
     const mergedSchedules = <Schedule[]>mergeSchedules(associatedSchedules);
     const schedules = addLateNightServices(mergedSchedules, scheduleResults.idGenerator);
 
