@@ -25,6 +25,7 @@ export class OutputGTFSCommand implements CLICommand {
 
   public constructor(
     private readonly repository: CIFRepository,
+    private readonly includeFeedInfoFile: boolean,
     private readonly output: GTFSOutput
   ) {}
 
@@ -52,8 +53,11 @@ export class OutputGTFSCommand implements CLICommand {
     const calendarDatesP:Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
     const tripsP:Promise<void> = this.copyTrips(schedules, serviceIds);
 
-    const feedInfo:FeedInfo[] = [this.getFeedInfo()];
-    const feedInfoP: Promise<void> = this.copy(feedInfo, "feed_info.txt");
+    let feedInfoP: Promise<void> = Promise.resolve();
+    if (this.includeFeedInfoFile) {
+      const feedInfo: FeedInfo[] = [this.getFeedInfo()];
+      feedInfoP = this.copy(feedInfo, "feed_info.txt");
+    }
 
     await Promise.all([
       agencyP,
