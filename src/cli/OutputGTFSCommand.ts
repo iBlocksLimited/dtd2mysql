@@ -43,7 +43,6 @@ export class OutputGTFSCommand implements CLICommand {
     const scheduleResultsP:Promise<ScheduleResults> = this.repository.getSchedules();
     const transfersP:Promise<void> = this.copy(this.repository.getTransfers(), "transfers.txt");
     const stopsP:Promise<void> = this.copy(this.repository.getStops(), "stops.txt");
-    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
     const fixedLinksP:Promise<void> = this.copy(this.repository.getFixedLinks(), "links.txt");
     
     const schedules:Schedule[] = this.getSchedules(await associationsP, await scheduleResultsP);
@@ -52,6 +51,7 @@ export class OutputGTFSCommand implements CLICommand {
     const calendarP:Promise<void> = this.copy(calendars, "calendar.txt");
     const calendarDatesP:Promise<void> = this.copy(calendarDates, "calendar_dates.txt");
     const tripsP:Promise<void> = this.copyTrips(schedules, serviceIds);
+    const agencyP:Promise<void> = this.copy(agencies, "agency.txt");
 
     let feedInfoP: Promise<void> = Promise.resolve();
     if (this.includeFeedInfoFile) {
