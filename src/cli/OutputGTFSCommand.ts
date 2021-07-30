@@ -107,8 +107,24 @@ export class OutputGTFSCommand implements CLICommand {
       schedule.stopTimes.forEach(r => stopTimes.write(r));
     }
 
+    let knownAgencies: string[] = agencies.map(agency => agency.agency_id);
     for (const route of Object.values(routes)) {
       routeFile.write(route);
+
+      // In case we have new agency in the routes that doesn't exist in our agencies list, we create the agency with default info.
+      if (!knownAgencies.includes(route['agency_id'])) {
+        const createdAgency = {
+          agency_id: route['agency_id'],
+          agency_name: `${route['agency_id']} operator`,
+          agency_url: "https://www.google.com",
+          agency_timezone: "Europe/London",
+          agency_lang: "en",
+          agency_phone: "",
+          agency_fare_url: null
+        };
+        agencies.splice(-1, 0, createdAgency);
+        knownAgencies.push(route['agency_id']);
+      }
     }
 
     trips.end();
