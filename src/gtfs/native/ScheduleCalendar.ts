@@ -102,7 +102,8 @@ export class ScheduleCalendar {
   }
 
   /**
-   * Remove the given days from the calendar then tighten the dates
+   * Remove the given days from the calendar then tighten the dates.
+   * Beware that this method might generate ScheduleCalendar with runsFrom > runsTo date.
    */
   public clone(start: Moment,
                end: Moment,
