@@ -36,15 +36,20 @@ export class ScheduleBuilder {
         const stop = this.createStop(row, stops.length + 1);
 
         if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
-          if (stop.pickup_type === 0 || stop.drop_off_type === 0) {
-            const currentLargestCorrectionInd = stops[stops.length - 1].correctionIndTotal;
-            const newCorrectionInd = stop.correctionIndTotal;
-            // If previous stop is a passing point with same CRS code, we use this calling point to replace the passing point as
-            // passing point is not important for timetabling/journey generation and double up stops might cause issue.
-            const previousStopIsPassingPoint = stops[stops.length - 1].pickup_type === 1 && stops[stops.length - 1].drop_off_type === 1
-            if (newCorrectionInd > currentLargestCorrectionInd || previousStopIsPassingPoint) {
-              stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
-            }
+          // The reason we cannot just do correction_ind comparison as the CIF exporter did is because in TRUST data, adjacent
+          // calling point and passing point can share the same CRS code. We cannot export GTFS file with one calling point and one
+          // passing point adjacent to each other and shares the same CRS code, as OTP will remove repeated stops (judging by
+          // CRS code, not activity type) and there is a risk that the calling point will be removed by OTP ( See SMARTTIS-3537 for more detail).
+          // In this case, if adjacent stops has different activity type (one calling point, one passing point), we always
+          // reserve the calling point regardless the correction_ind. Only do correction_ind comparison if they have same
+          // activity type.
+          const previousCorrectionInd = stops[stops.length - 1].correctionIndTotal;
+          const currentCorrectionInd = stop.correctionIndTotal;
+          const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0
+          const currentStopIsCallingPoint = stop.pickup_type === 0 || stop.drop_off_type === 0;
+          if ((currentStopIsCallingPoint && !previousStopIsCallingPoint) ||
+                  (currentCorrectionInd > previousCorrectionInd && currentStopIsCallingPoint === previousStopIsCallingPoint)) {
+            stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
           }
         } else {
           stops.push(stop);

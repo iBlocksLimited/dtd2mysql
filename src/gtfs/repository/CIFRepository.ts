@@ -99,30 +99,36 @@ export class CIFRepository {
       await this.waitForSeconds(2);
       console.log(`Generating schedule for ${date} on: ${new Date().toLocaleString()}`)
 
+      // Time travelling fix movement has a starting correction_ind = -10000 so that it won't be picked up by DR daily
+      // processing, but TRUST GTFS exporter need it to eliminate time travelling movements. Therefore we add 15000 if
+      // movement has flag 'IB_ADJUST'(indicates time travelling fix) to make sure it definitely has higher correction_ind
+      // compare to normal Berth movement (correction=0), estimation movements (correction<0) and stuff manual insertion
+      // movements (which can be a number > 0, but definitely lower than 5000). See SMARTTIS-3841 for more detail.
+
       const queryTemplate = this.stream.query(`
-SELECT ta.activation_id                                                   AS id,
+SELECT ta.activation_id                                                                       AS id,
        s.train_uid,
-       e.rsid                                                          AS retail_train_id,
-       greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date))   AS runs_from,
-       least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date))      AS runs_to,
-       loc.crs_code                                                    AS crs_code,
-       s.stp_indicator                                                 AS stp_indicator,
+       e.rsid                                                                                 AS retail_train_id,
+       greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date))                          AS runs_from,
+       least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date))                             AS runs_to,
+       loc.crs_code                                                                           AS crs_code,
+       s.stp_indicator                                                                        AS stp_indicator,
        sloc.location_order,
-       tma.event_type                                                  AS event_type,
-       ta.tp_origin_timestamp                                          AS event_date,
-       tma.correction_ind                                              AS correction_ind_1,
-       tmd.correction_ind                                              AS correction_ind_2,
-       tma.actual_timestamp                                            AS actual_timestamp_1,
-       tmd.actual_timestamp                                            AS actual_timestamp_2,
+       tma.event_type                                                                         AS event_type,
+       ta.tp_origin_timestamp                                                                 AS event_date,
+       IF(tma.source_system_id = "IB_ADJUST", tma.correction_ind + 15000, tma.correction_ind) AS correction_ind_1,
+       IF(tmd.source_system_id = "IB_ADJUST", tmd.correction_ind + 15000, tmd.correction_ind) AS correction_ind_2,
+       tma.actual_timestamp                                                                   AS actual_timestamp_1,
+       tmd.actual_timestamp                                                                   AS actual_timestamp_2,
        sloc.public_arrival_time,
        sloc.public_departure_time,
-       IF(s.train_status = "S", "SS", s.train_category)                AS train_category,
-       IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time)   AS scheduled_arrival_time,
-       IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time) AS scheduled_departure_time,
+       IF(s.train_status = "S", "SS", s.train_category)                                       AS train_category,
+       IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time)                          AS scheduled_arrival_time,
+       IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time)                        AS scheduled_departure_time,
        sloc.platform,
        e.atoc_code,
-       sloc.schedule_location_id                                       AS stop_id,
-       COALESCE(sloc.activity, "")                                     AS activity,
+       sloc.schedule_location_id                                                              AS stop_id,
+       COALESCE(sloc.activity, "")                                                            AS activity,
        s.reservations,
        s.train_class
 
