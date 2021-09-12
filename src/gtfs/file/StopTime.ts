@@ -14,6 +14,8 @@ export interface StopTime {
   drop_off_type: 0 | 1 | 2 | 3;
   shape_dist_traveled: null;
   timepoint: 0 | 1;
+  correctionInd1: number;
+  correctionInd2: number;
   correctionIndTotal: number;
   scheduled_location_id: number | null;
 }

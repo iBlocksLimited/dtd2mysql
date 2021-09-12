@@ -130,7 +130,10 @@ SELECT ta.activation_id                                                         
        sloc.schedule_location_id                                                              AS stop_id,
        COALESCE(sloc.activity, "")                                                            AS activity,
        s.reservations,
-       s.train_class
+       s.train_class,
+       timetravelling_max.correction_ind + 15000                                              AS max_timetravel_fix_corr_ind,
+       timetravelling_max.movement_id                                                         AS max_timetravel_fix_id,
+       estimation_max.movement_id                                                             AS max_estimation_id
 
 FROM train_activation ta
        LEFT JOIN train_movement AS tma ON tma.activation_id = ta.activation_id
@@ -147,6 +150,22 @@ FROM train_activation ta
        LEFT JOIN cif_schedule_extra AS e ON e.schedule_id = s.schedule_id
        LEFT JOIN cif_schedule_location AS sloc ON tma.schedule_location_id = sloc.schedule_location_id
        LEFT JOIN master_location AS loc ON sloc.tiploc = loc.tiploc
+       LEFT JOIN train_movement timetravelling_max ON timetravelling_max.activation_id = ta.activation_id AND timetravelling_max.movement_id = (
+          SELECT tm.movement_id 
+          FROM train_movement tm 
+          WHERE tm.activation_id = ta.activation_id 
+          AND tm.source_system_id = "IB_ADJUST" 
+          ORDER BY tm.correction_ind DESC, tm.movement_id DESC 
+          LIMIT 1
+       )
+      LEFT JOIN train_movement estimation_max ON estimation_max.activation_id = ta.activation_id AND estimation_max.movement_id = (
+          SELECT tm.movement_id
+          FROM train_movement tm 
+          WHERE tm.activation_id = ta.activation_id
+          AND tm.source_system_id = "IBLOCKS"
+          ORDER BY tm.correction_ind DESC, tm.movement_id DESC
+          LIMIT 1
+      )
 
 WHERE 
     ta.tp_origin_timestamp = ?
@@ -477,7 +496,10 @@ export interface ScheduleStopTimeRow {
   activity: string,
   stop_id: number| null,
   train_class: null | "S" | "B",
-  reservations: null | "R" | "S" | "A"
+  reservations: null | "R" | "S" | "A",
+  max_timetravel_fix_corr_ind: number | null,
+  max_timetravel_fix_id: number | null,
+  max_estimation_id: number | null
 }
 
 export type StationCoordinates = {
