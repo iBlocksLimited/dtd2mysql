@@ -37,12 +37,12 @@ export class ScheduleBuilder {
 
         // If this is the first train movement of the train activation.
         if (stops.length == 0) {
-          let maxEstimationId = row.max_estimation_id;
+          let maxNonTimeTravelId = row.max_non_timetravel_fix_id;
           let maxTimeTravelFixId = row.max_timetravel_fix_id;
           // If max timetravel fix id < max estimation id, this means there is a new round of estimation and the time travelling
           // fix process didn't kick in, therefore we should ignore all time travelling fix movements (very rare case that can
           // only happen when stuff manually insert movements that fixes previous existing time travelling).
-          if (maxEstimationId !== null && maxTimeTravelFixId !== null && maxTimeTravelFixId > maxEstimationId) {
+          if (maxNonTimeTravelId !== null && maxTimeTravelFixId !== null && maxTimeTravelFixId > maxNonTimeTravelId) {
             // Otherwise we go ahead to assign the max time travel corr_ind, it's okay if max corr_ind is null.
             maxTimeTravelFixCorrectionIndicator = row.max_timetravel_fix_corr_ind;
           }

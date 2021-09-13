@@ -133,7 +133,7 @@ SELECT ta.activation_id                                                         
        s.train_class,
        timetravelling_max.correction_ind + 15000                                              AS max_timetravel_fix_corr_ind,
        timetravelling_max.movement_id                                                         AS max_timetravel_fix_id,
-       estimation_max.movement_id                                                             AS max_estimation_id
+       non_timetravelling_max.movement_id                                                     AS max_non_timetravel_fix_id
 
 FROM train_activation ta
        LEFT JOIN train_movement AS tma ON tma.activation_id = ta.activation_id
@@ -158,12 +158,12 @@ FROM train_activation ta
           ORDER BY tm.correction_ind DESC, tm.movement_id DESC 
           LIMIT 1
        )
-      LEFT JOIN train_movement estimation_max ON estimation_max.activation_id = ta.activation_id AND estimation_max.movement_id = (
+      LEFT JOIN train_movement non_timetravelling_max ON non_timetravelling_max.activation_id = ta.activation_id AND non_timetravelling_max.movement_id = (
           SELECT tm.movement_id
           FROM train_movement tm 
           WHERE tm.activation_id = ta.activation_id
-          AND tm.source_system_id = "IBLOCKS"
-          ORDER BY tm.correction_ind DESC, tm.movement_id DESC
+          AND tm.source_system_id != "IB_ADJUST"
+          ORDER BY tm.movement_id DESC
           LIMIT 1
       )
 
@@ -216,7 +216,7 @@ WHERE
      
      JOIN master_location as loc ON a.association_tiploc = loc.tiploc
    
-     WHERE a.wef_date < ?
+     WHERE a.wef_date <= ?
      AND a.weu_date >= ?
      AND (loc.crs_code IS NOT NULL AND loc.crs_code != "")
      ORDER BY a.stp_indicator DESC, a.association_id;
@@ -499,7 +499,7 @@ export interface ScheduleStopTimeRow {
   reservations: null | "R" | "S" | "A",
   max_timetravel_fix_corr_ind: number | null,
   max_timetravel_fix_id: number | null,
-  max_estimation_id: number | null
+  max_non_timetravel_fix_id: number | null
 }
 
 export type StationCoordinates = {
