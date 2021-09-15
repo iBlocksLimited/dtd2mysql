@@ -25,7 +25,8 @@ export class ScheduleBuilder {
     return new Promise<void>((resolve, reject) => {
       let stops: StopTime[] = [];
       let prevRow: ScheduleStopTimeRow;
-      let maxTimeTravelFixCorrectionIndicator: number | null;
+      let maxTimeTravelFixCorrectionIndicator: number | null = null;
+      let ignoreAllTimeTravelFixes: boolean = false;
 
       results.on("result", (row: ScheduleStopTimeRow) => {
         if (prevRow && prevRow.id !== row.id) {
@@ -33,18 +34,19 @@ export class ScheduleBuilder {
           this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
           stops = [];
           maxTimeTravelFixCorrectionIndicator = null;
+          ignoreAllTimeTravelFixes = false;
         }
 
         // If this is the first train movement of the train activation.
         if (stops.length == 0) {
           let maxNonTimeTravelId = row.max_non_timetravel_fix_id;
           let maxTimeTravelFixId = row.max_timetravel_fix_id;
-          // If max timetravel fix id < max estimation id, this means there is a new round of estimation and the time travelling
+          maxTimeTravelFixCorrectionIndicator = row.max_timetravel_fix_corr_ind;
+          // If maxNonTimeTravelId > maxTimeTravelFixId, this means there is a new round of estimation and the time travelling
           // fix process didn't kick in, therefore we should ignore all time travelling fix movements (very rare case that can
           // only happen when stuff manually insert movements that fixes previous existing time travelling).
-          if (maxNonTimeTravelId !== null && maxTimeTravelFixId !== null && maxTimeTravelFixId > maxNonTimeTravelId) {
-            // Otherwise we go ahead to assign the max time travel corr_ind, it's okay if max corr_ind is null.
-            maxTimeTravelFixCorrectionIndicator = row.max_timetravel_fix_corr_ind;
+          if (maxNonTimeTravelId && maxTimeTravelFixId && maxNonTimeTravelId > maxTimeTravelFixId) {
+            ignoreAllTimeTravelFixes = true;
           }
         }
 
@@ -52,10 +54,16 @@ export class ScheduleBuilder {
 
         if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
           let canReplace: boolean = true;
-          if (maxTimeTravelFixCorrectionIndicator !== null) {
-            // If stop contains time travelling fix from previous round, we don't use this stop for replacing.
+          // If stop contains time travelling fix from previous round, we don't use this stop for replacing.
+          if (maxTimeTravelFixCorrectionIndicator) {
             if ((stop.correctionInd1 >= 5000 && stop.correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
                     || (stop.correctionInd2 >= 5000 && stop.correctionInd2 !== maxTimeTravelFixCorrectionIndicator)) {
+              canReplace = false;
+            }
+          }
+          // Check if stop contains any time travel fixes and block replacement if ignoreAllTimeTravelFix is true
+          if (ignoreAllTimeTravelFixes) {
+            if (stop.correctionInd1 >= 5000 || stop.correctionInd2 >= 5000) {
               canReplace = false;
             }
           }
@@ -70,10 +78,18 @@ export class ScheduleBuilder {
           if(canReplace) {
             const previousCorrectionInd = stops[stops.length - 1].correctionIndTotal;
             const currentCorrectionInd = stop.correctionIndTotal;
-            const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0
+            const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0;
             const currentStopIsCallingPoint = stop.pickup_type === 0 || stop.drop_off_type === 0;
+            // Sometimes the first row added for this stop could have time travel fix from previous round, we need to
+            // replace them.
+            let previousStopContainInvalidTimeTravelFix: boolean = false;
+            if ((stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
+                    || (stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)) {
+              previousStopContainInvalidTimeTravelFix = true;
+            }
             if ((currentStopIsCallingPoint && !previousStopIsCallingPoint) ||
-                    (currentCorrectionInd > previousCorrectionInd && currentStopIsCallingPoint === previousStopIsCallingPoint)) {
+                    ((currentCorrectionInd > previousCorrectionInd || previousStopContainInvalidTimeTravelFix)
+                            && currentStopIsCallingPoint === previousStopIsCallingPoint)) {
               stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
             }
           }
