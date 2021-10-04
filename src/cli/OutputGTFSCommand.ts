@@ -14,6 +14,7 @@ import {addLateNightServices} from "../gtfs/command/AddLateNightServices";
 import {Calendar} from "../gtfs/file/Calendar";
 import {CalendarDate} from "../gtfs/file/CalendarDate";
 import {FeedInfo} from "../gtfs/file/FeedInfo";
+import {removeInvalidSchedules} from "../gtfs/command/RemoveInvalidSchedules";
 
 const util = require('util');
 const stream = require('stream');
@@ -147,8 +148,8 @@ export class OutputGTFSCommand implements CLICommand {
     console.log("merge schedules", Object.keys(associatedSchedules).length)
     const mergedSchedules = <Schedule[]>mergeSchedules(associatedSchedules);
     const schedules = addLateNightServices(mergedSchedules, scheduleResults.idGenerator);
-
-    return schedules;
+    const cleanedSchedules = removeInvalidSchedules(schedules);
+    return cleanedSchedules;
   }
 
   private getFeedInfo(): FeedInfo{
