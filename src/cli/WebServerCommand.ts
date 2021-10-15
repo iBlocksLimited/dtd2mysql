@@ -1,5 +1,6 @@
 import {CLICommand} from "./CLICommand";
 import {OutputGTFSCommand} from "./OutputGTFSCommand";
+import {execSync} from "child_process";
 const express = require("express");
 const archiver = require("archiver");
 const fs = require("fs");
@@ -8,10 +9,17 @@ const stream = require("stream");
 const AWS = require("aws-sdk");
 const moment = require("moment");
 
+
 export class WebServerCommand implements CLICommand {
   constructor(
     private gtfsCommandSupplier: (startRange, endRange, excludeFixedLinks, excludeVstpSchedules) => OutputGTFSCommand
   ) {}
+
+    waitForSeconds(seconds) {
+      return new Promise((res) => {
+        setTimeout(res, seconds * 1000)
+      })
+    }
 
   async run(argv: string[]) {
     if (!(argv[3] && argv[4])) {
@@ -54,9 +62,16 @@ export class WebServerCommand implements CLICommand {
         });
         await gtfsCommand.run(argv);
         let baseDir = gtfsCommand.baseDir;
-        const archive = archiver("zip", {zlib: {level: 9}});
+        // const archive = archiver("zip", {zlib: {level: 9}});
+        // Mega-bodge until I figure out when the underlying node event `finish` is called, and figure out when the file descriptor is released
+        await this.waitForSeconds(10);
 
-        const passthrough = new stream.PassThrough();
+        execSync(`zip -j tmp.zip ${baseDir}/*.txt`);
+        // temporarily use the linux built-in zip, rather than doing it in node
+        // This is due to the fact that `gtfs-stream` library that Raptor uses breaks on a streamed zip, if the compressed data contains 
+        // a certain set of characters
+
+        const passthrough = fs.createReadStream("tmp.zip");
         passthrough.on("data", () => {
           res.writeProcessing();
         });
@@ -83,12 +98,9 @@ export class WebServerCommand implements CLICommand {
               });
             }
           });
+          fs.unlinkSync("tmp.zip");
           inProgress = false;
         });
-
-        archive.directory(baseDir, false).pipe(passthrough);
-        // finalize the archive (ie we are done appending files but streams have to finish yet)
-        archive.finalize();
       } else {
         res.status(202).send("Already processing file: " + fileName);
       }
