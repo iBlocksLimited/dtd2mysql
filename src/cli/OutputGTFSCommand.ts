@@ -172,6 +172,8 @@ export class OutputGTFSCommand implements CLICommand {
 
       trips.write(schedule.toTrip(serviceId, routeId));
       schedule.stopTimes.forEach(r => {
+        delete r.correctionInd1;
+        delete r.correctionInd2;
         delete r.correctionIndTotal;
         delete r.scheduled_arrival_time;
         delete r.scheduled_departure_time;

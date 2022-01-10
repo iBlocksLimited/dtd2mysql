@@ -99,32 +99,41 @@ export class CIFRepository {
       await this.waitForSeconds(2);
       console.log(`Generating schedule for ${date} on: ${new Date().toLocaleString()}`)
 
+      // Time travelling fix movement has a starting correction_ind = -10000 so that it won't be picked up by DR daily
+      // processing, but TRUST GTFS exporter need it to eliminate time travelling movements. Therefore we add 15000 if
+      // movement has flag 'IB_ADJUST'(indicates time travelling fix) to make sure it definitely has higher correction_ind
+      // compare to normal Berth movement (correction=0), estimation movements (correction<0) and stuff manual insertion
+      // movements (which can be a number > 0, but definitely lower than 5000). See SMARTTIS-3841 for more detail.
+
       const queryTemplate = this.stream.query(`
-SELECT ta.activation_id                                                   AS id,
+SELECT ta.activation_id                                                                       AS id,
        s.train_uid,
-       e.rsid                                                          AS retail_train_id,
-       greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date))   AS runs_from,
-       least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date))      AS runs_to,
-       loc.crs_code                                                    AS crs_code,
-       s.stp_indicator                                                 AS stp_indicator,
+       e.rsid                                                                                 AS retail_train_id,
+       greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date))                          AS runs_from,
+       least(s.weu_date, COALESCE(s.import_weu_date, s.weu_date))                             AS runs_to,
+       loc.crs_code                                                                           AS crs_code,
+       s.stp_indicator                                                                        AS stp_indicator,
        sloc.location_order,
-       tma.event_type                                                  AS event_type,
-       ta.tp_origin_timestamp                                          AS event_date,
-       tma.correction_ind                                              AS correction_ind_1,
-       tmd.correction_ind                                              AS correction_ind_2,
-       tma.actual_timestamp                                            AS actual_timestamp_1,
-       tmd.actual_timestamp                                            AS actual_timestamp_2,
+       tma.event_type                                                                         AS event_type,
+       ta.tp_origin_timestamp                                                                 AS event_date,
+       IF(tma.source_system_id = "IB_ADJUST", tma.correction_ind + 15000, tma.correction_ind) AS correction_ind_1,
+       IF(tmd.source_system_id = "IB_ADJUST", tmd.correction_ind + 15000, tmd.correction_ind) AS correction_ind_2,
+       tma.actual_timestamp                                                                   AS actual_timestamp_1,
+       tmd.actual_timestamp                                                                   AS actual_timestamp_2,
        sloc.public_arrival_time,
        sloc.public_departure_time,
-       IF(s.train_status = "S", "SS", s.train_category)                AS train_category,
-       IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time)   AS scheduled_arrival_time,
-       IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time) AS scheduled_departure_time,
+       IF(s.train_status = "S", "SS", s.train_category)                                       AS train_category,
+       IFNULL(sloc.scheduled_arrival_time, sloc.scheduled_pass_time)                          AS scheduled_arrival_time,
+       IFNULL(sloc.scheduled_departure_time, sloc.scheduled_pass_time)                        AS scheduled_departure_time,
        sloc.platform,
        e.atoc_code,
-       sloc.schedule_location_id                                       AS stop_id,
-       COALESCE(sloc.activity, "")                                     AS activity,
+       sloc.schedule_location_id                                                              AS stop_id,
+       COALESCE(sloc.activity, "")                                                            AS activity,
        s.reservations,
-       s.train_class
+       s.train_class,
+       timetravelling_max.correction_ind + 15000                                              AS max_timetravel_fix_corr_ind,
+       timetravelling_max.movement_id                                                         AS max_timetravel_fix_id,
+       non_timetravelling_max.movement_id                                                     AS max_non_timetravel_fix_id
 
 FROM train_activation ta
        LEFT JOIN train_movement AS tma ON tma.activation_id = ta.activation_id
@@ -141,6 +150,22 @@ FROM train_activation ta
        LEFT JOIN cif_schedule_extra AS e ON e.schedule_id = s.schedule_id
        LEFT JOIN cif_schedule_location AS sloc ON tma.schedule_location_id = sloc.schedule_location_id
        LEFT JOIN master_location AS loc ON sloc.tiploc = loc.tiploc
+       LEFT JOIN train_movement timetravelling_max ON timetravelling_max.activation_id = ta.activation_id AND timetravelling_max.movement_id = (
+          SELECT tm.movement_id 
+          FROM train_movement tm 
+          WHERE tm.activation_id = ta.activation_id 
+          AND tm.source_system_id = "IB_ADJUST" 
+          ORDER BY tm.correction_ind DESC, tm.movement_id DESC 
+          LIMIT 1
+       )
+      LEFT JOIN train_movement non_timetravelling_max ON non_timetravelling_max.activation_id = ta.activation_id AND non_timetravelling_max.movement_id = (
+          SELECT tm.movement_id
+          FROM train_movement tm 
+          WHERE tm.activation_id = ta.activation_id
+          AND tm.source_system_id != "IB_ADJUST"
+          ORDER BY tm.movement_id DESC
+          LIMIT 1
+      )
 
 WHERE 
     ta.tp_origin_timestamp = ?
@@ -191,7 +216,7 @@ WHERE
      
      JOIN master_location as loc ON a.association_tiploc = loc.tiploc
    
-     WHERE a.wef_date < ?
+     WHERE a.wef_date <= ?
      AND a.weu_date >= ?
      AND (loc.crs_code IS NOT NULL AND loc.crs_code != "")
      ORDER BY a.stp_indicator DESC, a.association_id;
@@ -471,7 +496,10 @@ export interface ScheduleStopTimeRow {
   activity: string,
   stop_id: number| null,
   train_class: null | "S" | "B",
-  reservations: null | "R" | "S" | "A"
+  reservations: null | "R" | "S" | "A",
+  max_timetravel_fix_corr_ind: number | null,
+  max_timetravel_fix_id: number | null,
+  max_non_timetravel_fix_id: number | null
 }
 
 export type StationCoordinates = {
