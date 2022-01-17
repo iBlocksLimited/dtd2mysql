@@ -106,7 +106,8 @@ export class CIFRepository {
       // movements (which can be a number > 0, but definitely lower than 5000). See SMARTTIS-3841 for more detail.
 
       const queryTemplate = this.stream.query(`
-SELECT ta.activation_id                                                                       AS id,
+SELECT STRAIGHT_JOIN
+       ta.activation_id                                                                       AS id,
        s.train_uid,
        e.rsid                                                                                 AS retail_train_id,
        greatest(s.wef_date, COALESCE(s.import_wef_date, s.wef_date))                          AS runs_from,
@@ -136,6 +137,22 @@ SELECT ta.activation_id                                                         
        non_timetravelling_max.movement_id                                                     AS max_non_timetravel_fix_id
 
 FROM train_activation ta
+       LEFT JOIN train_movement timetravelling_max ON timetravelling_max.activation_id = ta.activation_id AND timetravelling_max.movement_id = (
+          SELECT tm.movement_id 
+          FROM train_movement tm 
+          WHERE tm.activation_id = ta.activation_id 
+          AND tm.source_system_id = "IB_ADJUST" 
+          ORDER BY tm.correction_ind DESC, tm.movement_id DESC 
+          LIMIT 1
+       )
+       LEFT JOIN train_movement non_timetravelling_max ON non_timetravelling_max.activation_id = ta.activation_id AND non_timetravelling_max.movement_id = (
+          SELECT tm.movement_id
+          FROM train_movement tm 
+          WHERE tm.activation_id = ta.activation_id
+          AND tm.source_system_id != "IB_ADJUST"
+          ORDER BY tm.movement_id DESC
+          LIMIT 1
+       )
        LEFT JOIN train_movement AS tma ON tma.activation_id = ta.activation_id
                                             AND tma.event_type IN ('ARRIVAL', 'DEPARTURE')
                                             AND tma.offroute_ind IS FALSE
@@ -150,22 +167,6 @@ FROM train_activation ta
        LEFT JOIN cif_schedule_extra AS e ON e.schedule_id = s.schedule_id
        LEFT JOIN cif_schedule_location AS sloc ON tma.schedule_location_id = sloc.schedule_location_id
        LEFT JOIN master_location AS loc ON sloc.tiploc = loc.tiploc
-       LEFT JOIN train_movement timetravelling_max ON timetravelling_max.activation_id = ta.activation_id AND timetravelling_max.movement_id = (
-          SELECT tm.movement_id 
-          FROM train_movement tm 
-          WHERE tm.activation_id = ta.activation_id 
-          AND tm.source_system_id = "IB_ADJUST" 
-          ORDER BY tm.correction_ind DESC, tm.movement_id DESC 
-          LIMIT 1
-       )
-      LEFT JOIN train_movement non_timetravelling_max ON non_timetravelling_max.activation_id = ta.activation_id AND non_timetravelling_max.movement_id = (
-          SELECT tm.movement_id
-          FROM train_movement tm 
-          WHERE tm.activation_id = ta.activation_id
-          AND tm.source_system_id != "IB_ADJUST"
-          ORDER BY tm.movement_id DESC
-          LIMIT 1
-      )
 
 WHERE 
     ta.tp_origin_timestamp = ?
