@@ -9,7 +9,7 @@ export class TrainCancellation implements TrainVariationEvent{
           public readonly trainActivationId: number,
           public readonly trainTUID: TUID,
           public readonly trainActivationTime: Moment,
-          public readonly eventStationCrsCodes: CRS[],
+          public readonly eventStationCrsCodes: CRS[], // why? different CRS code can represent same location, e.g. CTR,XCZ all means Chester
           public readonly depTimestamp: Moment,
           public readonly cancelType: TrainCancellationType,
           public readonly lastCancellationId: number,

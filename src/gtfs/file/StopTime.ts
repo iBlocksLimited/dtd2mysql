@@ -18,6 +18,7 @@ export interface StopTime {
   correctionInd2: number;
   correctionIndTotal: number;
   scheduled_location_id: number | null;
+  darwin_termination_stop: boolean;
 }
 
 export type Platform = string;

@@ -27,6 +27,7 @@ export class ScheduleBuilder {
       let prevRow: ScheduleStopTimeRow;
       let maxTimeTravelFixCorrectionIndicator: number | null = null;
       let ignoreAllTimeTravelFixes: boolean = false;
+      let isDarwinTerminatedTrip: boolean = false;
 
       results.on("result", (row: ScheduleStopTimeRow) => {
         if (prevRow && prevRow.id !== row.id) {
@@ -35,69 +36,72 @@ export class ScheduleBuilder {
           stops = [];
           maxTimeTravelFixCorrectionIndicator = null;
           ignoreAllTimeTravelFixes = false;
+          isDarwinTerminatedTrip = false;
         }
 
-        // If this is the first train movement of the train activation.
-        if (stops.length == 0) {
-          let maxNonTimeTravelId = row.max_non_timetravel_fix_id;
-          let maxTimeTravelFixId = row.max_timetravel_fix_id;
-          maxTimeTravelFixCorrectionIndicator = row.max_timetravel_fix_corr_ind;
-          // If maxNonTimeTravelId > maxTimeTravelFixId, this means there is a new round of estimation and the time travelling
-          // fix process didn't kick in, therefore we should ignore all time travelling fix movements (very rare case that can
-          // only happen when stuff manually insert movements that fixes previous existing time travelling).
-          if (maxNonTimeTravelId && maxTimeTravelFixId && maxNonTimeTravelId > maxTimeTravelFixId) {
-            ignoreAllTimeTravelFixes = true;
+        if (!isDarwinTerminatedTrip) {
+          // If this is the first train movement of the train activation.
+          if (stops.length == 0) {
+            let maxNonTimeTravelId = row.max_non_timetravel_fix_id;
+            let maxTimeTravelFixId = row.max_timetravel_fix_id;
+            maxTimeTravelFixCorrectionIndicator = row.max_timetravel_fix_corr_ind;
+            // If maxNonTimeTravelId > maxTimeTravelFixId, this means there is a new round of estimation and the time travelling
+            // fix process didn't kick in, therefore we should ignore all time travelling fix movements (very rare case that can
+            // only happen when stuff manually insert movements that fixes previous existing time travelling).
+            if (maxNonTimeTravelId && maxTimeTravelFixId && maxNonTimeTravelId > maxTimeTravelFixId) {
+              ignoreAllTimeTravelFixes = true;
+            }
           }
+
+          const stop = this.createStop(row, stops.length + 1);
+
+          if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
+            let canReplace: boolean = true;
+            // If stop contains time travelling fix from previous round, we don't use this stop for replacing.
+            if (maxTimeTravelFixCorrectionIndicator) {
+              if ((stop.correctionInd1 >= 5000 && stop.correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
+                      || (stop.correctionInd2 >= 5000 && stop.correctionInd2 !== maxTimeTravelFixCorrectionIndicator)) {
+                canReplace = false;
+              }
+            }
+            // Check if stop contains any time travel fixes and block replacement if ignoreAllTimeTravelFix is true
+            if (ignoreAllTimeTravelFixes) {
+              if (stop.correctionInd1 >= 5000 || stop.correctionInd2 >= 5000) {
+                canReplace = false;
+              }
+            }
+
+            // The reason we cannot just do correction_ind comparison as the CIF exporter did is because in TRUST data, adjacent
+            // calling point and passing point can share the same CRS code. We cannot export GTFS file with one calling point and one
+            // passing point adjacent to each other and shares the same CRS code, as OTP will remove repeated stops (judging by
+            // CRS code, not activity type) and there is a risk that the calling point will be removed by OTP ( See SMARTTIS-3537 for more detail).
+            // In this case, if adjacent stops has different activity type (one calling point, one passing point), we always
+            // reserve the calling point regardless the correction_ind. Only do correction_ind comparison if they have same
+            // activity type.
+            if (canReplace) {
+              const previousCorrectionInd = stops[stops.length - 1].correctionIndTotal;
+              const currentCorrectionInd = stop.correctionIndTotal;
+              const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0;
+              const currentStopIsCallingPoint = stop.pickup_type === 0 || stop.drop_off_type === 0;
+              // Sometimes the first row added for this stop could have time travel fix from previous round, we need to
+              // replace them.
+              let previousStopContainInvalidTimeTravelFix: boolean = false;
+              if ((stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
+                      || (stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)) {
+                previousStopContainInvalidTimeTravelFix = true;
+              }
+              if ((currentStopIsCallingPoint && !previousStopIsCallingPoint) ||
+                      ((currentCorrectionInd > previousCorrectionInd || previousStopContainInvalidTimeTravelFix)
+                              && currentStopIsCallingPoint === previousStopIsCallingPoint)) {
+                stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
+              }
+            }
+          } else {
+            stops.push(stop);
+            isDarwinTerminatedTrip = stop.darwin_termination_stop;
+          }
+          prevRow = row;
         }
-
-        const stop = this.createStop(row, stops.length + 1);
-
-        if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
-          let canReplace: boolean = true;
-          // If stop contains time travelling fix from previous round, we don't use this stop for replacing.
-          if (maxTimeTravelFixCorrectionIndicator) {
-            if ((stop.correctionInd1 >= 5000 && stop.correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
-                    || (stop.correctionInd2 >= 5000 && stop.correctionInd2 !== maxTimeTravelFixCorrectionIndicator)) {
-              canReplace = false;
-            }
-          }
-          // Check if stop contains any time travel fixes and block replacement if ignoreAllTimeTravelFix is true
-          if (ignoreAllTimeTravelFixes) {
-            if (stop.correctionInd1 >= 5000 || stop.correctionInd2 >= 5000) {
-              canReplace = false;
-            }
-          }
-
-          // The reason we cannot just do correction_ind comparison as the CIF exporter did is because in TRUST data, adjacent
-          // calling point and passing point can share the same CRS code. We cannot export GTFS file with one calling point and one
-          // passing point adjacent to each other and shares the same CRS code, as OTP will remove repeated stops (judging by
-          // CRS code, not activity type) and there is a risk that the calling point will be removed by OTP ( See SMARTTIS-3537 for more detail).
-          // In this case, if adjacent stops has different activity type (one calling point, one passing point), we always
-          // reserve the calling point regardless the correction_ind. Only do correction_ind comparison if they have same
-          // activity type.
-          if(canReplace) {
-            const previousCorrectionInd = stops[stops.length - 1].correctionIndTotal;
-            const currentCorrectionInd = stop.correctionIndTotal;
-            const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0;
-            const currentStopIsCallingPoint = stop.pickup_type === 0 || stop.drop_off_type === 0;
-            // Sometimes the first row added for this stop could have time travel fix from previous round, we need to
-            // replace them.
-            let previousStopContainInvalidTimeTravelFix: boolean = false;
-            if ((stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
-                    || (stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)) {
-              previousStopContainInvalidTimeTravelFix = true;
-            }
-            if ((currentStopIsCallingPoint && !previousStopIsCallingPoint) ||
-                    ((currentCorrectionInd > previousCorrectionInd || previousStopContainInvalidTimeTravelFix)
-                            && currentStopIsCallingPoint === previousStopIsCallingPoint)) {
-              stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
-            }
-          }
-        } else {
-          stops.push(stop);
-        }
-
-        prevRow = row;
       });
 
       results.on("end", () => {
@@ -159,11 +163,11 @@ export class ScheduleBuilder {
       formattedArrivalTime = null;
     }
 
-    if(row.public_arrival_time == "00:00:00") {
+    if (row.public_arrival_time == "00:00:00") {
       unadvertisedArrival = true;
     }
 
-    if(row.public_departure_time == "00:00:00") {
+    if (row.public_departure_time == "00:00:00") {
       unadvertisedDeparture = true;
     }
 
@@ -171,9 +175,12 @@ export class ScheduleBuilder {
     const pickup = pickupActivities.find(a => activities.includes(a)) && !activities.includes(notAdvertised) && !unadvertisedDeparture ? 0 : 1;
     const coordinatedDropOff = coordinatedActivity.find(a => activities.includes(a)) ? 3 : 0;
     const dropOff = dropOffActivities.find(a => activities.includes(a)) && !unadvertisedArrival ? 0 : 1;
+    // If darwin says this stop is cancelled, we turn this stop into passing point (pickup = 1 and dropOff = 1).
+    const darwinCancelledStop = row.darwin_cancelled === 1 ? 1 : 0;
+    const isDarwinTerminationStop: boolean = row.darwin_activity_code === "TF";
 
     // Mitigating against timestamps at passing stations which have recorded the departure time before the arrival time.
-    if (formattedDepartureTime !== null && formattedDepartureTime < formattedArrivalTime){
+    if (formattedDepartureTime !== null && formattedDepartureTime < formattedArrivalTime) {
       formattedArrivalTime = formattedDepartureTime;
     }
 
@@ -188,19 +195,20 @@ export class ScheduleBuilder {
       stop_id: row.crs_code,
       stop_sequence: stopId,
       stop_headsign: row.platform,
-      pickup_type: coordinatedDropOff || pickup,
-      drop_off_type: coordinatedDropOff || dropOff,
+      pickup_type: darwinCancelledStop || coordinatedDropOff || pickup,
+      drop_off_type: darwinCancelledStop || coordinatedDropOff || dropOff,
       shape_dist_traveled: null,
       timepoint: 1,
       correctionInd1: +row.correction_ind_1,
       correctionInd2: +row.correction_ind_2,
       correctionIndTotal: correctionIndicatorTotal,
-      scheduled_location_id: row.stop_id
+      scheduled_location_id: row.stop_id,
+      darwin_termination_stop: isDarwinTerminationStop,
     };
   }
 
   private convertActualTimestampToMoment(datetime: string | null) {
-    if (datetime===null) {
+    if (datetime === null) {
       return null;
     } else {
       return moment(datetime);

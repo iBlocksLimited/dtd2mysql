@@ -100,7 +100,8 @@ export function stop(stopSequence: number, location: CRS, time: string): StopTim
     correctionInd1: 0,
     correctionInd2: 0,
     correctionIndTotal: 0,
-    scheduled_location_id: 0
+    scheduled_location_id: 0,
+    darwin_termination_stop: false
   };
 }
 

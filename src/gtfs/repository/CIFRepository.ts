@@ -134,7 +134,9 @@ SELECT STRAIGHT_JOIN
        s.train_class,
        timetravelling_max.correction_ind + 15000                                              AS max_timetravel_fix_corr_ind,
        timetravelling_max.movement_id                                                         AS max_timetravel_fix_id,
-       non_timetravelling_max.movement_id                                                     AS max_non_timetravel_fix_id
+       non_timetravelling_max.movement_id                                                     AS max_non_timetravel_fix_id,
+       djl.cancelled                                                                          AS darwin_cancelled,
+       djl.current_activity_code                                                              AS darwin_activity_code
 
 FROM train_activation ta
        LEFT JOIN train_movement timetravelling_max ON timetravelling_max.activation_id = ta.activation_id AND timetravelling_max.movement_id = (
@@ -167,9 +169,20 @@ FROM train_activation ta
        LEFT JOIN cif_schedule_extra AS e ON e.schedule_id = s.schedule_id
        LEFT JOIN cif_schedule_location AS sloc ON tma.schedule_location_id = sloc.schedule_location_id
        LEFT JOIN master_location AS loc ON sloc.tiploc = loc.tiploc
+       LEFT JOIN darwin_journey_location djl ON djl.darwin_journey_id = (
+          SELECT dj.journey_id AS darwinJourneyId
+          FROM darwin_journey dj 
+          WHERE dj.ssd = ta.tp_origin_timestamp AND dj.train_uid = ta.train_uid
+          ORDER BY dj.created DESC 
+          LIMIT 1
+       ) 
+       AND djl.tiploc = sloc.tiploc 
+       AND (djl.scheduled_arrival_time = sloc.scheduled_arrival_time 
+       OR djl.scheduled_departure_time = sloc.scheduled_departure_time
+       OR djl.scheduled_pass_time = sloc.scheduled_pass_time)
 
 WHERE 
-    ta.tp_origin_timestamp = ?
+    ta.tp_origin_timestamp = "2022-05-06" and ta.train_uid in ('Y01527')
   AND loc.crs_code IS NOT NULL
   AND loc.crs_code != ""
   AND sloc.schedule_location_id IS NOT NULL
@@ -500,7 +513,9 @@ export interface ScheduleStopTimeRow {
   reservations: null | "R" | "S" | "A",
   max_timetravel_fix_corr_ind: number | null,
   max_timetravel_fix_id: number | null,
-  max_non_timetravel_fix_id: number | null
+  max_non_timetravel_fix_id: number | null,
+  darwin_cancelled: 0 | 1 | null,
+  darwin_activity_code: string | null
 }
 
 export type StationCoordinates = {
