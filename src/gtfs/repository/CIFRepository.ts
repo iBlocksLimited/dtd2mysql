@@ -173,7 +173,7 @@ FROM train_activation ta
           SELECT dj.journey_id AS darwinJourneyId
           FROM darwin_journey dj 
           WHERE dj.ssd = ta.tp_origin_timestamp AND dj.train_uid = ta.train_uid
-          ORDER BY dj.created DESC 
+          ORDER BY dj.created DESC, dj.journey_id DESC
           LIMIT 1
        ) 
        AND djl.tiploc = sloc.tiploc 
@@ -182,7 +182,7 @@ FROM train_activation ta
        OR djl.scheduled_pass_time = sloc.scheduled_pass_time)
 
 WHERE 
-    ta.tp_origin_timestamp = "2022-05-06" and ta.train_uid in ('Y01527')
+    ta.tp_origin_timestamp = ?
   AND loc.crs_code IS NOT NULL
   AND loc.crs_code != ""
   AND sloc.schedule_location_id IS NOT NULL
@@ -514,7 +514,7 @@ export interface ScheduleStopTimeRow {
   max_timetravel_fix_corr_ind: number | null,
   max_timetravel_fix_id: number | null,
   max_non_timetravel_fix_id: number | null,
-  darwin_cancelled: 0 | 1 | null,
+  darwin_cancelled: number | null,
   darwin_activity_code: string | null
 }
 

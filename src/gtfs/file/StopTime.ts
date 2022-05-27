@@ -18,6 +18,7 @@ export interface StopTime {
   correctionInd2: number;
   correctionIndTotal: number;
   scheduled_location_id: number | null;
+  is_darwin_cancellation_stop: boolean;
   darwin_termination_stop: boolean;
 }
 

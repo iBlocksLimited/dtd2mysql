@@ -295,6 +295,7 @@ function stop(stopSequence: number, location: CRS, time: string, tripId: number 
     correctionInd2: 0,
     correctionIndTotal: 0,
     scheduled_location_id: 0,
+    is_darwin_cancellation_stop: false,
     darwin_termination_stop: false
   };
 }

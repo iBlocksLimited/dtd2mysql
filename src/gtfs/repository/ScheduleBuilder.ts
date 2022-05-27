@@ -27,86 +27,86 @@ export class ScheduleBuilder {
       let prevRow: ScheduleStopTimeRow;
       let maxTimeTravelFixCorrectionIndicator: number | null = null;
       let ignoreAllTimeTravelFixes: boolean = false;
-      let isDarwinTerminatedTrip: boolean = false;
 
       results.on("result", (row: ScheduleStopTimeRow) => {
         if (prevRow && prevRow.id !== row.id) {
-          // We enter this if block only if this is the first stop of a new train activation and there is a prev train activation.
-          this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          // Before we store this schedule, we should check if this schedule is cancelled by Darwin completely.
+          if (!this.isScheduleCancelledByDarwinCompletely(stops)) {
+            // We enter this if block only if this is the first stop of a new train activation and there is a prev train activation.
+            this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          }
           stops = [];
           maxTimeTravelFixCorrectionIndicator = null;
           ignoreAllTimeTravelFixes = false;
-          isDarwinTerminatedTrip = false;
         }
 
-        if (!isDarwinTerminatedTrip) {
-          // If this is the first train movement of the train activation.
-          if (stops.length == 0) {
-            let maxNonTimeTravelId = row.max_non_timetravel_fix_id;
-            let maxTimeTravelFixId = row.max_timetravel_fix_id;
-            maxTimeTravelFixCorrectionIndicator = row.max_timetravel_fix_corr_ind;
-            // If maxNonTimeTravelId > maxTimeTravelFixId, this means there is a new round of estimation and the time travelling
-            // fix process didn't kick in, therefore we should ignore all time travelling fix movements (very rare case that can
-            // only happen when stuff manually insert movements that fixes previous existing time travelling).
-            if (maxNonTimeTravelId && maxTimeTravelFixId && maxNonTimeTravelId > maxTimeTravelFixId) {
-              ignoreAllTimeTravelFixes = true;
+        // If this is the first train movement of the train activation.
+        if (stops.length == 0) {
+          let maxNonTimeTravelId = row.max_non_timetravel_fix_id;
+          let maxTimeTravelFixId = row.max_timetravel_fix_id;
+          maxTimeTravelFixCorrectionIndicator = row.max_timetravel_fix_corr_ind;
+          // If maxNonTimeTravelId > maxTimeTravelFixId, this means there is a new round of estimation and the time travelling
+          // fix process didn't kick in, therefore we should ignore all time travelling fix movements (very rare case that can
+          // only happen when stuff manually insert movements that fixes previous existing time travelling).
+          if (maxNonTimeTravelId && maxTimeTravelFixId && maxNonTimeTravelId > maxTimeTravelFixId) {
+            ignoreAllTimeTravelFixes = true;
+          }
+        }
+
+        const stop = this.createStop(row, stops.length + 1);
+
+        if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
+          let canReplace: boolean = true;
+          // If stop contains time travelling fix from previous round, we don't use this stop for replacing.
+          if (maxTimeTravelFixCorrectionIndicator) {
+            if ((stop.correctionInd1 >= 5000 && stop.correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
+                    || (stop.correctionInd2 >= 5000 && stop.correctionInd2 !== maxTimeTravelFixCorrectionIndicator)) {
+              canReplace = false;
+            }
+          }
+          // Check if stop contains any time travel fixes and block replacement if ignoreAllTimeTravelFix is true
+          if (ignoreAllTimeTravelFixes) {
+            if (stop.correctionInd1 >= 5000 || stop.correctionInd2 >= 5000) {
+              canReplace = false;
             }
           }
 
-          const stop = this.createStop(row, stops.length + 1);
-
-          if (prevRow && prevRow.id === row.id && row.crs_code === prevRow.crs_code) {
-            let canReplace: boolean = true;
-            // If stop contains time travelling fix from previous round, we don't use this stop for replacing.
-            if (maxTimeTravelFixCorrectionIndicator) {
-              if ((stop.correctionInd1 >= 5000 && stop.correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
-                      || (stop.correctionInd2 >= 5000 && stop.correctionInd2 !== maxTimeTravelFixCorrectionIndicator)) {
-                canReplace = false;
-              }
+          // The reason we cannot just do correction_ind comparison as the CIF exporter did is because in TRUST data, adjacent
+          // calling point and passing point can share the same CRS code. We cannot export GTFS file with one calling point and one
+          // passing point adjacent to each other and shares the same CRS code, as OTP will remove repeated stops (judging by
+          // CRS code, not activity type) and there is a risk that the calling point will be removed by OTP ( See SMARTTIS-3537 for more detail).
+          // In this case, if adjacent stops has different activity type (one calling point, one passing point), we always
+          // reserve the calling point regardless the correction_ind. Only do correction_ind comparison if they have same
+          // activity type.
+          if (canReplace) {
+            const previousCorrectionInd = stops[stops.length - 1].correctionIndTotal;
+            const currentCorrectionInd = stop.correctionIndTotal;
+            const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0;
+            const currentStopIsCallingPoint = stop.pickup_type === 0 || stop.drop_off_type === 0;
+            // Sometimes the first row added for this stop could have time travel fix from previous round, we need to
+            // replace them.
+            let previousStopContainInvalidTimeTravelFix: boolean = false;
+            if ((stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
+                    || (stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)) {
+              previousStopContainInvalidTimeTravelFix = true;
             }
-            // Check if stop contains any time travel fixes and block replacement if ignoreAllTimeTravelFix is true
-            if (ignoreAllTimeTravelFixes) {
-              if (stop.correctionInd1 >= 5000 || stop.correctionInd2 >= 5000) {
-                canReplace = false;
-              }
+            if ((currentStopIsCallingPoint && !previousStopIsCallingPoint) ||
+                    ((currentCorrectionInd > previousCorrectionInd || previousStopContainInvalidTimeTravelFix)
+                            && currentStopIsCallingPoint === previousStopIsCallingPoint)) {
+              stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
             }
-
-            // The reason we cannot just do correction_ind comparison as the CIF exporter did is because in TRUST data, adjacent
-            // calling point and passing point can share the same CRS code. We cannot export GTFS file with one calling point and one
-            // passing point adjacent to each other and shares the same CRS code, as OTP will remove repeated stops (judging by
-            // CRS code, not activity type) and there is a risk that the calling point will be removed by OTP ( See SMARTTIS-3537 for more detail).
-            // In this case, if adjacent stops has different activity type (one calling point, one passing point), we always
-            // reserve the calling point regardless the correction_ind. Only do correction_ind comparison if they have same
-            // activity type.
-            if (canReplace) {
-              const previousCorrectionInd = stops[stops.length - 1].correctionIndTotal;
-              const currentCorrectionInd = stop.correctionIndTotal;
-              const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0;
-              const currentStopIsCallingPoint = stop.pickup_type === 0 || stop.drop_off_type === 0;
-              // Sometimes the first row added for this stop could have time travel fix from previous round, we need to
-              // replace them.
-              let previousStopContainInvalidTimeTravelFix: boolean = false;
-              if ((stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)
-                      || (stops[stops.length - 1].correctionInd1 >= 5000 && stops[stops.length - 1].correctionInd1 !== maxTimeTravelFixCorrectionIndicator)) {
-                previousStopContainInvalidTimeTravelFix = true;
-              }
-              if ((currentStopIsCallingPoint && !previousStopIsCallingPoint) ||
-                      ((currentCorrectionInd > previousCorrectionInd || previousStopContainInvalidTimeTravelFix)
-                              && currentStopIsCallingPoint === previousStopIsCallingPoint)) {
-                stops[stops.length - 1] = Object.assign(stop, {stop_sequence: stops.length});
-              }
-            }
-          } else {
-            stops.push(stop);
-            isDarwinTerminatedTrip = stop.darwin_termination_stop;
           }
-          prevRow = row;
+        } else {
+          stops.push(stop);
         }
+        prevRow = row;
       });
 
       results.on("end", () => {
         if (prevRow) {
-          this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          if (!this.isScheduleCancelledByDarwinCompletely(stops)) {
+            this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          }
         }
 
         resolve();
@@ -115,31 +115,55 @@ export class ScheduleBuilder {
     });
   }
 
+  /**
+   * Return true if all stops of a schedule is marked as darwin cancelled, false otherwise.
+   */
+  private isScheduleCancelledByDarwinCompletely(stops: StopTime[]): boolean {
+    return stops.every(stopTime => stopTime.is_darwin_cancellation_stop);
+  }
+
   private createScheduleBasedOnSameCIFSchedule(row: ScheduleStopTimeRow, stops: StopTime[]): Schedule {
     this.maxId = Math.max(this.maxId, row.id);
+
+    let darwinTerminationIndex: number = stops.length - 1;
+    // Remove terminated stops according to Darwin activity code.
+    // We cannot do the darwin termination filtering within the mysql result retrieval transaction as we might receive multiple
+    // stops representing the same stop but has different correctionIndicator, therefore we need to finish the loop
+    // first (let it finish the correctionIndicator comparison).
+    for (const [index, stop] of stops.entries()) {
+      if (stop.darwin_termination_stop) {
+        stop.pickup_type = 1;
+        stop.drop_off_type = 0;
+        stop.departure_time = stop.arrival_time;
+        darwinTerminationIndex = index;
+        break;
+      }
+    }
+    let stopsAfterRemovingDarwinTerminatedStops = stops.slice(0, darwinTerminationIndex + 1);
+
     return new Schedule(
-      row.id,
-      stops,
-      row.train_uid,
-      row.retail_train_id,
-      new ScheduleCalendar(
-        moment(row.event_date),
-        moment(row.event_date),
-        <Days>{
-          0: Number(moment(row.event_date).weekday() === 0),
-          1: Number(moment(row.event_date).weekday() === 1),
-          2: Number(moment(row.event_date).weekday() === 2),
-          3: Number(moment(row.event_date).weekday() === 3),
-          4: Number(moment(row.event_date).weekday() === 4),
-          5: Number(moment(row.event_date).weekday() === 5),
-          6: Number(moment(row.event_date).weekday() === 6)
-        }
-      ),
-      routeTypeIndex.hasOwnProperty(row.train_category) ? routeTypeIndex[row.train_category] : RouteType.Rail,
-      row.atoc_code,
-      row.stp_indicator,
-      row.train_class !== "S",
-      row.reservations !== null
+            row.id,
+            stopsAfterRemovingDarwinTerminatedStops,
+            row.train_uid,
+            row.retail_train_id,
+            new ScheduleCalendar(
+                    moment(row.event_date),
+                    moment(row.event_date),
+                    <Days>{
+                      0: Number(moment(row.event_date).weekday() === 0),
+                      1: Number(moment(row.event_date).weekday() === 1),
+                      2: Number(moment(row.event_date).weekday() === 2),
+                      3: Number(moment(row.event_date).weekday() === 3),
+                      4: Number(moment(row.event_date).weekday() === 4),
+                      5: Number(moment(row.event_date).weekday() === 5),
+                      6: Number(moment(row.event_date).weekday() === 6)
+                    }
+            ),
+            routeTypeIndex.hasOwnProperty(row.train_category) ? routeTypeIndex[row.train_category] : RouteType.Rail,
+            row.atoc_code,
+            row.stp_indicator,
+            row.train_class !== "S",
+            row.reservations !== null
     );
   }
 
@@ -176,8 +200,8 @@ export class ScheduleBuilder {
     const coordinatedDropOff = coordinatedActivity.find(a => activities.includes(a)) ? 3 : 0;
     const dropOff = dropOffActivities.find(a => activities.includes(a)) && !unadvertisedArrival ? 0 : 1;
     // If darwin says this stop is cancelled, we turn this stop into passing point (pickup = 1 and dropOff = 1).
-    const darwinCancelledStop = row.darwin_cancelled === 1 ? 1 : 0;
-    const isDarwinTerminationStop: boolean = row.darwin_activity_code === "TF";
+    const darwinCancelledStop = row.darwin_cancelled !== null ? row.darwin_cancelled[0] ? 1 : 0 : 0;
+    const isDarwinTerminationStop: boolean = row.darwin_activity_code !== null ? row.darwin_activity_code === "TF" : false;
 
     // Mitigating against timestamps at passing stations which have recorded the departure time before the arrival time.
     if (formattedDepartureTime !== null && formattedDepartureTime < formattedArrivalTime) {
@@ -203,6 +227,7 @@ export class ScheduleBuilder {
       correctionInd2: +row.correction_ind_2,
       correctionIndTotal: correctionIndicatorTotal,
       scheduled_location_id: row.stop_id,
+      is_darwin_cancellation_stop: darwinCancelledStop === 1,
       darwin_termination_stop: isDarwinTerminationStop,
     };
   }
@@ -222,7 +247,7 @@ export class ScheduleBuilder {
     const eventDateMoment: moment.Moment = moment(row.event_date, "YYYY-MM-DD");
     // We get both date and time from TRUST movement actual_timestamp, therefore we can just use that date to compare
     // with event_date to check if there is a midnight rollover and adjust the timestamp to 48 hour clock accordingly.
-    if (timeStampMoment.isAfter(eventDateMoment, 'day') ) {
+    if (timeStampMoment.isAfter(eventDateMoment, 'day')) {
       return (currentStopDepartureHour + 24) + timeStampMoment.format("HH:mm:ss").substr(2);
     }
 
@@ -236,7 +261,7 @@ export class ScheduleBuilder {
     };
   }
 
-  private *getIdGenerator(startId: number): IterableIterator<number> {
+  private* getIdGenerator(startId: number): IterableIterator<number> {
     let id = startId + 1;
     while (true) {
       yield id++;
