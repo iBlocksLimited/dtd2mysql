@@ -134,7 +134,7 @@ export class ScheduleBuilder {
 
     let darwinTerminationIndex: number = stops.length - 1;
     // Set to 0 should be fine as this method is guarded by `isScheduleCancelledByDarwinCompletely`.
-    let lastNotCancelledStopIndex: number = 0;
+    let lastNotCancelledCallingStopIndex: number = 0;
     // Remove terminated stops according to Darwin activity code.
     // We cannot do the darwin termination filtering within the mysql result retrieval transaction as we might receive multiple
     // stops representing the same stop but has different correctionIndicator, therefore we need to finish the loop
@@ -146,11 +146,11 @@ export class ScheduleBuilder {
     for (const [index, stop] of stops.entries()) {
       if (stop.darwin_termination_stop) {
         if (stop.is_darwin_cancellation_stop) {
-          let lastNotCancelledStop: StopTime = stops[lastNotCancelledStopIndex];
+          let lastNotCancelledStop: StopTime = stops[lastNotCancelledCallingStopIndex];
           lastNotCancelledStop.pickup_type = 1;
           lastNotCancelledStop.drop_off_type = 0;
           lastNotCancelledStop.departure_time = lastNotCancelledStop.arrival_time;
-          darwinTerminationIndex = lastNotCancelledStopIndex;
+          darwinTerminationIndex = lastNotCancelledCallingStopIndex;
         } else {
           stop.pickup_type = 1;
           stop.drop_off_type = 0;
@@ -159,8 +159,9 @@ export class ScheduleBuilder {
           break;
         }
       }
-      if (!stop.is_darwin_cancellation_stop) {
-        lastNotCancelledStopIndex = index;
+      // We record the last not cancelled calling point.
+      if (!stop.is_darwin_cancellation_stop && stop.pickup_type === 0 && stop.drop_off_type === 0) {
+        lastNotCancelledCallingStopIndex = index;
       }
     }
     let stopsAfterRemovingDarwinTerminatedStops = stops.slice(0, darwinTerminationIndex + 1);
