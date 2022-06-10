@@ -119,24 +119,48 @@ export class ScheduleBuilder {
    * Return true if all stops of a schedule is marked as darwin cancelled, false otherwise.
    */
   private isScheduleCancelledByDarwinCompletely(stops: StopTime[]): boolean {
-    return stops.every(stopTime => stopTime.is_darwin_cancellation_stop);
+    let terminationIndex: number = stops.findIndex(s => s.darwin_termination_stop);
+    if (terminationIndex !== -1) {
+      // Find the first termination stop, only test stops between 0 and that termination stop.
+      return stops.slice(0, terminationIndex + 1).every(stopTime => stopTime.is_darwin_cancellation_stop);
+    } else {
+      // Cannot find a darwin termination stop, test all stops.
+      return stops.every(stopTime => stopTime.is_darwin_cancellation_stop);
+    }
   }
 
   private createScheduleBasedOnSameCIFSchedule(row: ScheduleStopTimeRow, stops: StopTime[]): Schedule {
     this.maxId = Math.max(this.maxId, row.id);
 
     let darwinTerminationIndex: number = stops.length - 1;
+    // Set to 0 should be fine as this method is guarded by `isScheduleCancelledByDarwinCompletely`.
+    let lastNotCancelledStopIndex: number = 0;
     // Remove terminated stops according to Darwin activity code.
     // We cannot do the darwin termination filtering within the mysql result retrieval transaction as we might receive multiple
     // stops representing the same stop but has different correctionIndicator, therefore we need to finish the loop
     // first (let it finish the correctionIndicator comparison).
+
+    // Also we need to beware of edge case where the TF is place on an off-route stop (which is not included in TRUST
+    // data feed), and what we are seeing is the already cancelled original termination station (activity code = TF
+    // and cancellation flag = 1), in this case we should mark the prior stop that is not cancelled as termination stop.
     for (const [index, stop] of stops.entries()) {
       if (stop.darwin_termination_stop) {
-        stop.pickup_type = 1;
-        stop.drop_off_type = 0;
-        stop.departure_time = stop.arrival_time;
-        darwinTerminationIndex = index;
-        break;
+        if (stop.is_darwin_cancellation_stop) {
+          let lastNotCancelledStop: StopTime = stops[lastNotCancelledStopIndex];
+          lastNotCancelledStop.pickup_type = 1;
+          lastNotCancelledStop.drop_off_type = 0;
+          lastNotCancelledStop.departure_time = lastNotCancelledStop.arrival_time;
+          darwinTerminationIndex = lastNotCancelledStopIndex;
+        } else {
+          stop.pickup_type = 1;
+          stop.drop_off_type = 0;
+          stop.departure_time = stop.arrival_time;
+          darwinTerminationIndex = index;
+          break;
+        }
+      }
+      if (!stop.is_darwin_cancellation_stop) {
+        lastNotCancelledStopIndex = index;
       }
     }
     let stopsAfterRemovingDarwinTerminatedStops = stops.slice(0, darwinTerminationIndex + 1);
