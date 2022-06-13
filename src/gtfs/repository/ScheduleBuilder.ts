@@ -30,8 +30,11 @@ export class ScheduleBuilder {
 
       results.on("result", (row: ScheduleStopTimeRow) => {
         if (prevRow && prevRow.id !== row.id) {
-          // We enter this if block only if this is the first stop of a new train activation and there is a prev train activation.
-          this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          // Before we store this schedule, we should check if this schedule is cancelled by Darwin completely.
+          if (!this.isScheduleCancelledByDarwinCompletely(stops)) {
+            // We enter this if block only if this is the first stop of a new train activation and there is a prev train activation.
+            this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          }
           stops = [];
           maxTimeTravelFixCorrectionIndicator = null;
           ignoreAllTimeTravelFixes = false;
@@ -75,7 +78,7 @@ export class ScheduleBuilder {
           // In this case, if adjacent stops has different activity type (one calling point, one passing point), we always
           // reserve the calling point regardless the correction_ind. Only do correction_ind comparison if they have same
           // activity type.
-          if(canReplace) {
+          if (canReplace) {
             const previousCorrectionInd = stops[stops.length - 1].correctionIndTotal;
             const currentCorrectionInd = stop.correctionIndTotal;
             const previousStopIsCallingPoint = stops[stops.length - 1].pickup_type === 0 || stops[stops.length - 1].drop_off_type === 0;
@@ -96,13 +99,14 @@ export class ScheduleBuilder {
         } else {
           stops.push(stop);
         }
-
         prevRow = row;
       });
 
       results.on("end", () => {
         if (prevRow) {
-          this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          if (!this.isScheduleCancelledByDarwinCompletely(stops)) {
+            this.schedules.push(this.createScheduleBasedOnSameCIFSchedule(prevRow, stops));
+          }
         }
 
         resolve();
@@ -111,31 +115,80 @@ export class ScheduleBuilder {
     });
   }
 
+  /**
+   * Return true if all stops of a schedule is marked as darwin cancelled, false otherwise.
+   */
+  private isScheduleCancelledByDarwinCompletely(stops: StopTime[]): boolean {
+    let terminationIndex: number = stops.findIndex(s => s.darwin_termination_stop);
+    if (terminationIndex !== -1) {
+      // Find the first termination stop, only test stops between 0 and that termination stop.
+      return stops.slice(0, terminationIndex + 1).every(stopTime => stopTime.is_darwin_cancellation_stop);
+    } else {
+      // Cannot find a darwin termination stop, test all stops.
+      return stops.every(stopTime => stopTime.is_darwin_cancellation_stop);
+    }
+  }
+
   private createScheduleBasedOnSameCIFSchedule(row: ScheduleStopTimeRow, stops: StopTime[]): Schedule {
     this.maxId = Math.max(this.maxId, row.id);
-    return new Schedule(
-      row.id,
-      stops,
-      row.train_uid,
-      row.retail_train_id,
-      new ScheduleCalendar(
-        moment(row.event_date),
-        moment(row.event_date),
-        <Days>{
-          0: Number(moment(row.event_date).weekday() === 0),
-          1: Number(moment(row.event_date).weekday() === 1),
-          2: Number(moment(row.event_date).weekday() === 2),
-          3: Number(moment(row.event_date).weekday() === 3),
-          4: Number(moment(row.event_date).weekday() === 4),
-          5: Number(moment(row.event_date).weekday() === 5),
-          6: Number(moment(row.event_date).weekday() === 6)
+
+    let darwinTerminationIndex: number = stops.length - 1;
+    // Set to 0 should be fine as this method is guarded by `isScheduleCancelledByDarwinCompletely`.
+    let lastNotCancelledCallingStopIndex: number = 0;
+    // Remove terminated stops according to Darwin activity code.
+    // We cannot do the darwin termination filtering within the mysql result retrieval transaction as we might receive multiple
+    // stops representing the same stop but has different correctionIndicator, therefore we need to finish the loop
+    // first (let it finish the correctionIndicator comparison).
+
+    // Also we need to beware of edge case where the TF is place on an off-route stop (which is not included in TRUST
+    // data feed), and what we are seeing is the already cancelled original termination station (activity code = TF
+    // and cancellation flag = 1), in this case we should mark the prior stop that is not cancelled as termination stop.
+    for (const [index, stop] of stops.entries()) {
+      if (stop.darwin_termination_stop) {
+        if (stop.is_darwin_cancellation_stop) {
+          let lastNotCancelledStop: StopTime = stops[lastNotCancelledCallingStopIndex];
+          lastNotCancelledStop.pickup_type = 1;
+          lastNotCancelledStop.drop_off_type = 0;
+          lastNotCancelledStop.departure_time = lastNotCancelledStop.arrival_time;
+          darwinTerminationIndex = lastNotCancelledCallingStopIndex;
+        } else {
+          stop.pickup_type = 1;
+          stop.drop_off_type = 0;
+          stop.departure_time = stop.arrival_time;
+          darwinTerminationIndex = index;
+          break;
         }
-      ),
-      routeTypeIndex.hasOwnProperty(row.train_category) ? routeTypeIndex[row.train_category] : RouteType.Rail,
-      row.atoc_code,
-      row.stp_indicator,
-      row.train_class !== "S",
-      row.reservations !== null
+      }
+      // We record the last not cancelled calling point.
+      if (!stop.is_darwin_cancellation_stop && stop.pickup_type === 0 && stop.drop_off_type === 0) {
+        lastNotCancelledCallingStopIndex = index;
+      }
+    }
+    let stopsAfterRemovingDarwinTerminatedStops = stops.slice(0, darwinTerminationIndex + 1);
+
+    return new Schedule(
+            row.id,
+            stopsAfterRemovingDarwinTerminatedStops,
+            row.train_uid,
+            row.retail_train_id,
+            new ScheduleCalendar(
+                    moment(row.event_date),
+                    moment(row.event_date),
+                    <Days>{
+                      0: Number(moment(row.event_date).weekday() === 0),
+                      1: Number(moment(row.event_date).weekday() === 1),
+                      2: Number(moment(row.event_date).weekday() === 2),
+                      3: Number(moment(row.event_date).weekday() === 3),
+                      4: Number(moment(row.event_date).weekday() === 4),
+                      5: Number(moment(row.event_date).weekday() === 5),
+                      6: Number(moment(row.event_date).weekday() === 6)
+                    }
+            ),
+            routeTypeIndex.hasOwnProperty(row.train_category) ? routeTypeIndex[row.train_category] : RouteType.Rail,
+            row.atoc_code,
+            row.stp_indicator,
+            row.train_class !== "S",
+            row.reservations !== null
     );
   }
 
@@ -159,11 +212,11 @@ export class ScheduleBuilder {
       formattedArrivalTime = null;
     }
 
-    if(row.public_arrival_time == "00:00:00") {
+    if (row.public_arrival_time == "00:00:00") {
       unadvertisedArrival = true;
     }
 
-    if(row.public_departure_time == "00:00:00") {
+    if (row.public_departure_time == "00:00:00") {
       unadvertisedDeparture = true;
     }
 
@@ -171,9 +224,12 @@ export class ScheduleBuilder {
     const pickup = pickupActivities.find(a => activities.includes(a)) && !activities.includes(notAdvertised) && !unadvertisedDeparture ? 0 : 1;
     const coordinatedDropOff = coordinatedActivity.find(a => activities.includes(a)) ? 3 : 0;
     const dropOff = dropOffActivities.find(a => activities.includes(a)) && !unadvertisedArrival ? 0 : 1;
+    // If darwin says this stop is cancelled, we turn this stop into passing point (pickup = 1 and dropOff = 1).
+    const darwinCancelledStop = row.darwin_cancelled !== null ? row.darwin_cancelled[0] ? 1 : 0 : 0;
+    const isDarwinTerminationStop: boolean = row.darwin_activity_code !== null ? row.darwin_activity_code === "TF" : false;
 
     // Mitigating against timestamps at passing stations which have recorded the departure time before the arrival time.
-    if (formattedDepartureTime !== null && formattedDepartureTime < formattedArrivalTime){
+    if (formattedDepartureTime !== null && formattedDepartureTime < formattedArrivalTime) {
       formattedArrivalTime = formattedDepartureTime;
     }
 
@@ -188,19 +244,21 @@ export class ScheduleBuilder {
       stop_id: row.crs_code,
       stop_sequence: stopId,
       stop_headsign: row.platform,
-      pickup_type: coordinatedDropOff || pickup,
-      drop_off_type: coordinatedDropOff || dropOff,
+      pickup_type: darwinCancelledStop || coordinatedDropOff || pickup,
+      drop_off_type: darwinCancelledStop || coordinatedDropOff || dropOff,
       shape_dist_traveled: null,
       timepoint: 1,
       correctionInd1: +row.correction_ind_1,
       correctionInd2: +row.correction_ind_2,
       correctionIndTotal: correctionIndicatorTotal,
-      scheduled_location_id: row.stop_id
+      scheduled_location_id: row.stop_id,
+      is_darwin_cancellation_stop: darwinCancelledStop === 1,
+      darwin_termination_stop: isDarwinTerminationStop,
     };
   }
 
   private convertActualTimestampToMoment(datetime: string | null) {
-    if (datetime===null) {
+    if (datetime === null) {
       return null;
     } else {
       return moment(datetime);
@@ -214,7 +272,7 @@ export class ScheduleBuilder {
     const eventDateMoment: moment.Moment = moment(row.event_date, "YYYY-MM-DD");
     // We get both date and time from TRUST movement actual_timestamp, therefore we can just use that date to compare
     // with event_date to check if there is a midnight rollover and adjust the timestamp to 48 hour clock accordingly.
-    if (timeStampMoment.isAfter(eventDateMoment, 'day') ) {
+    if (timeStampMoment.isAfter(eventDateMoment, 'day')) {
       return (currentStopDepartureHour + 24) + timeStampMoment.format("HH:mm:ss").substr(2);
     }
 
@@ -228,7 +286,7 @@ export class ScheduleBuilder {
     };
   }
 
-  private *getIdGenerator(startId: number): IterableIterator<number> {
+  private* getIdGenerator(startId: number): IterableIterator<number> {
     let id = startId + 1;
     while (true) {
       yield id++;

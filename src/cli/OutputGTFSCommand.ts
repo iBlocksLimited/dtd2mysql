@@ -178,6 +178,8 @@ export class OutputGTFSCommand implements CLICommand {
         delete r.scheduled_arrival_time;
         delete r.scheduled_departure_time;
         delete r.scheduled_location_id;
+        delete r.is_darwin_cancellation_stop;
+        delete r.darwin_termination_stop;
         stopTimes.write(r)
       });
     }
