@@ -36,9 +36,10 @@ export function applyAssociations(schedulesByTuid: ScheduleIndex,
 
         // We have to check that the association _actually_ goes through the association point, and it is sensible to
         // associate two trains at the association stop.
+        if(baseSchedules.length === 0) continue;
         const baseTrainStopTime: StopTime =  baseSchedules[0].stopAt(association.assocLocation);
         const assocTrainStopTime: StopTime = assocSchedule.stopAt(association.assocLocation);
-        if (baseSchedules.length > 0 && baseTrainStopTime && assocTrainStopTime && isSensibleToAssociate(baseTrainStopTime, assocTrainStopTime)) {
+        if (baseTrainStopTime && assocTrainStopTime && isSensibleToAssociate(association, baseTrainStopTime, assocTrainStopTime)) {
           const [replacement, ...associatedSchedules] = association.apply(baseSchedules[0], assocSchedule, idGenerator);
 
           // add the merged base and associated schedule to the TUID index
@@ -71,15 +72,26 @@ function findSchedules(schedules: Schedule[], calendar: ScheduleCalendar): Sched
  *
  * See SMARTTIS-4304 for more detail.
  *
+ * @param association Association detail.
  * @param baseAssociationStop The stop time for the base train at the association stop.
  * @param assocAssociationStop The stop time for the assoc train at the association stop.
  */
-function isSensibleToAssociate(baseAssociationStop: StopTime, assocAssociationStop: StopTime): boolean {
+function isSensibleToAssociate(association: Association, baseAssociationStop: StopTime, assocAssociationStop: StopTime): boolean {
   let baseTrainArrivalTime = moment.duration(baseAssociationStop.arrival_time);
   let baseTrainDepartureTime = moment.duration(baseAssociationStop.departure_time);
   let assocTrainArrivalTime = moment.duration(assocAssociationStop.arrival_time);
   let assocTrainDepartureTime = moment.duration(assocAssociationStop.departure_time);
-  return !(baseTrainArrivalTime.asSeconds() <= assocTrainDepartureTime.asSeconds() || assocTrainArrivalTime.asSeconds() <= baseTrainDepartureTime.asSeconds());
+
+  if (association.assocType === AssociationType.Join) {
+    // For join, we don't have departure time for the assoc train, we need to ensure the base train's departure time
+    // is after the assoc train's arrival time.
+    return baseTrainDepartureTime.asSeconds() > assocTrainArrivalTime.asSeconds();
+  } else if (association.assocType === AssociationType.Split) {
+    // For split, we don't have arrival time assoc train, we need to ensure the assoc train's departure time
+    // is after the base train's arrival time.
+    return assocTrainDepartureTime.asSeconds() > baseTrainArrivalTime.asSeconds()
+  }
+  return true;
 }
 
 export type ScheduleIndex = {
