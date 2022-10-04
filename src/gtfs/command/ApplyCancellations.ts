@@ -5,6 +5,7 @@ import {TrainReinstatement} from "../native/TrainReinstatement";
 import {TrainChangeOfOrigin} from "../native/TrainChangeOfOrigin";
 import {TrainVariationEvent} from "../native/TrainVariationEvent";
 import * as moment from "moment/moment";
+import {CRS} from "../file/Stop";
 
 /**
  * Apply train variation events to a train activation with all its movement data.
@@ -33,7 +34,12 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
       if (stopTimes.length > 0) {
         let findChangeOfOrigin = false;
         for (const [index, stop] of stopTimes.entries()) {
-          if (isChangeOfOriginStation(latestChangeOfOrigin, stop)) {
+          // 99% of change of origin is to change origin to a later stop on train's scheduled stations, rather than change to
+          // a completely irrelevant station. Therefore here we can just use the change_of_origin's new station's CRS code
+          // to find that station in the train's stops and make that station as the train's new origin.
+
+          // In this case, change of origin is really another form of cancellation - cancel all stations from beginning until X station.
+          if (isChangeOfOriginNewStation(latestChangeOfOrigin, stop)) {
             findChangeOfOrigin = true;
             stop.arrival_time = stop.departure_time;
             stop.pickup_type = 0;
@@ -41,7 +47,27 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
             stopTimes.splice(0, index);
             break;
           }
+
+          // However, 1% of change of origin is to change the origin to an off-route station.
+          // In this case we need to use the change_of_origin's old station's CRS code to find a match in the train's stops, substitute
+          // the CRS code of that station with change_of_origin's new station's CRS code and make that as the train's new origin.
+
+          // The reason we need to use the old station is because we populate the train stop crs code by using the joined cif_schedule_location
+          // rather than the live stanox on the movement (we don't support off-route so cif_schedule_location is preferred), therefore
+          // even if the trust_movement recorded the movement on an off-route station, we still populate the movement's CRS code with
+          // the origin scheduled station.
+          // We fall into this situation because change origin to an off-route station is not marked as off-route in the DR's database.
+          if (!findChangeOfOrigin && isChangeOfOriginOldStation(latestChangeOfOrigin, stop)) {
+            findChangeOfOrigin = true;
+            stop.arrival_time = stop.departure_time;
+            stop.pickup_type = 0;
+            stop.drop_off_type = 1;
+            stop.stop_id = latestChangeOfOrigin.eventStationCrsCodes[0];
+            stopTimes.splice(0, index);
+            break;
+          }
         }
+
         // if (!findChangeOfOrigin) {
         //   // todo gtc maybe consider to insert the change of origin station to the first of movement data (there is
         //   //  probably a off-route before first movement which got excluded in the query result), to become the new origin.
@@ -149,16 +175,20 @@ export function isCancellationStation(cancellationInfo: TrainCancellation, stop:
   if (cancellationInfo.schedule_location_id == stop.scheduled_location_id) {
     return true;
   }
-  return isStation(cancellationInfo, stop);
+  return isStation(cancellationInfo.eventStationCrsCodes, cancellationInfo, stop);
 }
 
-export function isChangeOfOriginStation(changeOfOrigin: TrainChangeOfOrigin, stop: StopTime): boolean {
-  return isStation(changeOfOrigin, stop);
+export function isChangeOfOriginNewStation(changeOfOrigin: TrainChangeOfOrigin, stop: StopTime): boolean {
+  return isStation(changeOfOrigin.eventStationCrsCodes, changeOfOrigin, stop);
 }
 
-export function isStation(variationEvent: TrainVariationEvent, stop: StopTime): boolean {
+export function isChangeOfOriginOldStation(changeOfOrigin: TrainChangeOfOrigin, stop: StopTime): boolean {
+  return isStation(changeOfOrigin.eventOldStationCrsCodes, changeOfOrigin, stop);
+}
+
+export function isStation(stopsToMatch:CRS[], variationEvent: TrainVariationEvent, stop: StopTime): boolean {
   // The depTimestamp of variation event is always based on train's scheduled departure time.
-  if (variationEvent.eventStationCrsCodes.includes(stop.stop_id)) {
+  if (stopsToMatch.includes(stop.stop_id)) {
     const activationDate: string = variationEvent.depTimestamp.format('YYYY-MM-DD');
     let stopTimeToCompare: moment.Moment | undefined;
     if (stop.scheduled_departure_time) {
