@@ -45,6 +45,7 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
             stop.pickup_type = 0;
             stop.drop_off_type = 1;
             stopTimes.splice(0, index);
+            consolidateStopTimeSequence(stopTimes);
             break;
           }
 
@@ -64,6 +65,7 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
             stop.drop_off_type = 1;
             stop.stop_id = latestChangeOfOrigin.eventStationCrsCodes[0];
             stopTimes.splice(0, index);
+            consolidateStopTimeSequence(stopTimes);
             break;
           }
         }
@@ -106,6 +108,7 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
                   stop.pickup_type = 1;
                   stop.drop_off_type = 0;
                   stopTimes.splice(index + 1);
+                  consolidateStopTimeSequence(stopTimes);
                   break;
                 }
               }
@@ -131,6 +134,7 @@ export function applyTrainVariationEvents(schedules: Schedule[], trainCancellati
               stop.pickup_type = 1;
               stop.drop_off_type = 0;
               stopTimes.splice(index + 1);
+              consolidateStopTimeSequence(stopTimes);
               break;
             }
           }
@@ -186,7 +190,7 @@ export function isChangeOfOriginOldStation(changeOfOrigin: TrainChangeOfOrigin, 
   return isStation(changeOfOrigin.eventOldStationCrsCodes, changeOfOrigin, stop);
 }
 
-export function isStation(stopsToMatch:CRS[], variationEvent: TrainVariationEvent, stop: StopTime): boolean {
+export function isStation(stopsToMatch: CRS[], variationEvent: TrainVariationEvent, stop: StopTime): boolean {
   // The depTimestamp of variation event is always based on train's scheduled departure time.
   if (stopsToMatch.includes(stop.stop_id)) {
     const activationDate: string = variationEvent.depTimestamp.format('YYYY-MM-DD');
@@ -284,5 +288,17 @@ export function convertTrainVariationEventToMap(trainVariationEvents: TrainVaria
     }
   }
   return trainVariationEventMap;
+}
+
+/**
+ * After removing some cancelled stops from stopTimes, we want to re-sort the stop sequence so that they starts from 1 and there
+ * is no number gap in the sequence.
+ */
+export function consolidateStopTimeSequence(stopTimes: StopTime[]) {
+  let sequence: number = 1;
+  for (let stopTime of stopTimes) {
+    stopTime.stop_sequence = sequence;
+    sequence++;
+  }
 }
 
