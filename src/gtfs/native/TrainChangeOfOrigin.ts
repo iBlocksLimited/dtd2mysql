@@ -10,6 +10,7 @@ export class TrainChangeOfOrigin implements TrainVariationEvent{
           public readonly trainTUID: TUID,
           public readonly trainActivationTime: Moment,
           public readonly eventStationCrsCodes: CRS[],
+          public readonly eventOldStationCrsCodes: CRS[],
           public readonly depTimestamp: Moment,
           public readonly eventInsertionTime: Moment,
   ) {}

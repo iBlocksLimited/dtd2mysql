@@ -36,7 +36,7 @@ export class CIFRepository {
   public get endDate() {
     return this.endRange;
   }
-  
+
   /**
    * Return the interchange time between each station
    */
@@ -394,29 +394,34 @@ SELECT tco.change_of_origin_id            AS change_of_origin_id,
        tco.activation_id                  AS train_activation_id,
        ta.train_uid                       AS train_uid,
        ta.tp_origin_timestamp             AS train_activation_date,
-       GROUP_CONCAT(distinct ml.crs_code) AS change_of_origin_crs_code,
+       GROUP_CONCAT(distinct ml_new_origin.crs_code) AS change_of_origin_new_origin_crs_code,
+       GROUP_CONCAT(distinct ml_old_origin.crs_code) AS change_of_origin_old_origin_crs_code,
        tco.dep_timestamp                  AS dep_timestamp,
        tco.coo_timestamp                  AS event_insertion_timestamp
 FROM train_activation ta
        LEFT JOIN train_change_of_origin tco ON tco.activation_id = ta.activation_id
-       LEFT JOIN master_location ml ON ml.stanox = tco.loc_stanox
+       LEFT JOIN master_location ml_new_origin ON ml_new_origin.stanox = tco.loc_stanox
+       LEFT JOIN master_location ml_old_origin 
+          ON ml_old_origin.stanox = tco.original_loc_stanox and tco.original_loc_stanox != ''
+
        JOIN train_movement tm on tm.activation_id = ta.activation_id
 WHERE ta.activation_id IS NOT NULL
   AND ta.tp_origin_timestamp between ? and ?
   AND tco.dep_timestamp IS NOT NULL
-  AND ml.crs_code IS NOT NULL
-  AND ml.crs_code != ''
+  AND ml_new_origin.crs_code IS NOT NULL
+  AND ml_new_origin.crs_code != ''
   AND tm.movement_id IS NOT NULL
 GROUP BY tco.change_of_origin_id
 ORDER BY tco.activation_id, tco.change_of_origin_id, tco.coo_timestamp;
     `, [this.startRange.format("YYYY-MM-DD"), this.endRange.format("YYYY-MM-DD")]);
-    console.log("TrainChangeOfOrigin size:" ,results.length)
+    console.log("TrainChangeOfOrigin size:", results.length)
     return results.map(row => new TrainChangeOfOrigin(
             row.change_of_origin_id,
             row.train_activation_id,
             row.train_uid,
             moment(row.train_activation_date),
-            row.change_of_origin_crs_code.split(","),
+            row.change_of_origin_new_origin_crs_code.split(","),
+            row.change_of_origin_old_origin_crs_code ? row.change_of_origin_old_origin_crs_code.split(",") : [],
             moment(row.dep_timestamp),
             moment(row.event_insertion_timestamp)
     ));
@@ -595,7 +600,8 @@ interface TrainChangeOfOriginRow {
   train_activation_id: number,
   train_uid: TUID,
   train_activation_date: string,
-  change_of_origin_crs_code: CRS,
+  change_of_origin_new_origin_crs_code: CRS[],
+  change_of_origin_old_origin_crs_code: CRS[] | null,
   dep_timestamp: string,
   event_insertion_timestamp: string,
 }
