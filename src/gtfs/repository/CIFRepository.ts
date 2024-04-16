@@ -223,8 +223,8 @@ WHERE
    SUBSTRING(a.valid_days, 5, 1 ) as friday,
    SUBSTRING(a.valid_days, 6, 1 ) as saturday,
    SUBSTRING(a.valid_days, 7, 1 ) as sunday,
-   a.wef_date as start_date,
-   a.weu_date as end_date,
+   GREATEST(a.wef_date, COALESCE(STR_TO_DATE(ABS(a.import_wef_date_number), '%Y%m%d'), a.wef_date)) as start_date,
+   LEAST(a.weu_date, COALESCE(STR_TO_DATE(a.import_weu_date_number, '%Y%m%d'), a.weu_date)) as end_date,
    a.stp_indicator
     FROM cif_association as a
      
@@ -233,6 +233,7 @@ WHERE
      WHERE a.wef_date <= ?
      AND a.weu_date >= ?
      AND (loc.crs_code IS NOT NULL AND loc.crs_code != "")
+     HAVING end_date >= start_date
      ORDER BY a.stp_indicator DESC, a.association_id;
     `, [this.endRange.format("YYYY-MM-DD"), this.startRange.format("YYYY-MM-DD")]);
     console.log("Assosiation size:" ,results.length)
