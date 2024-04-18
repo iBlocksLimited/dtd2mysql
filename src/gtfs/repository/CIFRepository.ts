@@ -136,7 +136,8 @@ SELECT STRAIGHT_JOIN
        timetravelling_max.movement_id                                                         AS max_timetravel_fix_id,
        non_timetravelling_max.movement_id                                                     AS max_non_timetravel_fix_id,
        djl.cancelled                                                                          AS darwin_cancelled,
-       djl.current_activity_code                                                              AS darwin_activity_code
+       djl.current_activity_code                                                              AS darwin_activity_code,
+       s.schedule_id                                                                          AS cif_schedule_id
 
 FROM train_activation ta
        LEFT JOIN train_movement timetravelling_max ON timetravelling_max.activation_id = ta.activation_id AND timetravelling_max.movement_id = (
@@ -522,6 +523,7 @@ export interface ScheduleStopTimeRow {
   max_non_timetravel_fix_id: number | null,
   darwin_cancelled: number | null,
   darwin_activity_code: string | null
+  cif_schedule_id: string | null
 }
 
 export type StationCoordinates = {
