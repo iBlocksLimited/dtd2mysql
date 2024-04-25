@@ -284,6 +284,7 @@ export interface ScheduleStopTimeRow {
   crs_code: CRS,
   train_category: string,
   atoc_code: string | null,
+  stop_id: number,
   public_arrival_time: string | null,
   public_departure_time: string | null,
   scheduled_arrival_time: string | null,
