@@ -141,7 +141,7 @@ export class ScheduleBuilder {
       departure_time: (departureTime || arrivalTime),
       stop_id: row.crs_code,
       stop_sequence: stopId,
-      stop_headsign: row.platform,
+      stop_headsign: `${row.train_uid}_${row.id}_${row.stop_id}`,
       pickup_type: coordinatedDropOff || pickup,
       drop_off_type: coordinatedDropOff || dropOff,
       shape_dist_traveled: null,
