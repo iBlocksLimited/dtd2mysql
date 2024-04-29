@@ -83,16 +83,19 @@ export class Association implements OverlayRecord {
     let start: StopTime[];
     let assocStop: StopTime;
     let end: StopTime[];
+    const baseStopAtAssocLocation = base.stopAt(this.assocLocation);
+    const assocStopAtAssocLocation = assoc.stopAt(this.assocLocation);
+    const stopHeadsignToUse = assocStopAtAssocLocation.stop_headsign;
 
     tuid = base.tuid + "_" + assoc.tuid;
     if (this.assocType === AssociationType.Split) {
       start = base.before(this.assocLocation);
-      assocStop = this.mergeAssociationStop(base.stopAt(this.assocLocation), assoc.stopAt(this.assocLocation));
+      assocStop = this.mergeAssociationStop(baseStopAtAssocLocation, assocStopAtAssocLocation, stopHeadsignToUse);
       end = assoc.after(this.assocLocation);
     }
     else {
       start = assoc.before(this.assocLocation);
-      assocStop = this.mergeAssociationStop(assoc.stopAt(this.assocLocation), base.stopAt(this.assocLocation));
+      assocStop = this.mergeAssociationStop(assocStopAtAssocLocation, baseStopAtAssocLocation, stopHeadsignToUse);
       end = base.after(this.assocLocation)
     }
 
@@ -127,7 +130,7 @@ export class Association implements OverlayRecord {
   /**
    * Take the arrival time of the first stop and the departure time of the second stop and put them into a new stop
    */
-  public mergeAssociationStop(arrivalStop: StopTime, departureStop: StopTime): StopTime {
+  public mergeAssociationStop(arrivalStop: StopTime, departureStop: StopTime, stopheadsignToUse: string): StopTime {
 
     if(!arrivalStop) {
       debugger;
@@ -151,7 +154,8 @@ export class Association implements OverlayRecord {
       arrival_time: formatDuration(arrivalTime.asSeconds()),
       departure_time: formatDuration(departureTime.asSeconds()),
       pickup_type: departureStop.pickup_type,
-      drop_off_type: arrivalStop.drop_off_type
+      drop_off_type: arrivalStop.drop_off_type,
+      stop_headsign: stopheadsignToUse,
     });
   }
 

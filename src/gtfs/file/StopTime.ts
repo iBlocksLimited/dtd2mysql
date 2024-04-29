@@ -9,7 +9,7 @@ export interface StopTime {
   scheduled_departure_time: string | null;
   stop_id: CRS;
   stop_sequence: number;
-  stop_headsign: Platform;
+  stop_headsign: TrainUidCifScheduleIdCifLocationId;
   pickup_type: 0 | 1 | 2 | 3;
   drop_off_type: 0 | 1 | 2 | 3;
   shape_dist_traveled: null;
@@ -22,4 +22,4 @@ export interface StopTime {
   darwin_termination_stop: boolean;
 }
 
-export type Platform = string;
+export type TrainUidCifScheduleIdCifLocationId = string;

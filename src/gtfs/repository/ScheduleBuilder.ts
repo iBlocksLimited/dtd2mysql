@@ -243,7 +243,7 @@ export class ScheduleBuilder {
       scheduled_departure_time: row.scheduled_departure_time,
       stop_id: row.crs_code,
       stop_sequence: stopId,
-      stop_headsign: row.platform,
+      stop_headsign: `${row.train_uid}_${row.cif_schedule_id}_${row.stop_id}`,
       pickup_type: darwinCancelledStop || coordinatedDropOff || pickup,
       drop_off_type: darwinCancelledStop || coordinatedDropOff || dropOff,
       shape_dist_traveled: null,
