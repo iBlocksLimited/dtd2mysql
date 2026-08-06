@@ -18,11 +18,12 @@ import {TrainReinstatement} from "../gtfs/native/TrainReinstatement";
 import {TrainChangeOfOrigin} from "../gtfs/native/TrainChangeOfOrigin";
 import {IdGenerator} from "../gtfs/native/OverlayRecord";
 import {FeedInfo} from "../gtfs/file/FeedInfo";
+import {Route} from "../gtfs/file/Route";
 import streamToPromise = require("stream-to-promise");
 const AWS = require("aws-sdk");
 
 export class OutputGTFSCommand implements CLICommand {
-  public baseDir: string;
+  public baseDir = "./";
 
   public constructor(
           private readonly repository: CIFRepository,
@@ -162,7 +163,7 @@ export class OutputGTFSCommand implements CLICommand {
     const trips = this.output.open(this.baseDir + "trips.txt");
     const stopTimes = this.output.open(this.baseDir + "stop_times.txt");
     const routeFile = this.output.open(this.baseDir + "routes.txt");
-    const routes = {};
+    const routes: Record<string, Route> = {};
 
     for (const schedule of schedules) {
       const route = schedule.toRoute();
@@ -172,15 +173,18 @@ export class OutputGTFSCommand implements CLICommand {
 
       trips.write(schedule.toTrip(serviceId, routeId));
       schedule.stopTimes.forEach(r => {
-        delete r.correctionInd1;
-        delete r.correctionInd2;
-        delete r.correctionIndTotal;
-        delete r.scheduled_arrival_time;
-        delete r.scheduled_departure_time;
-        delete r.scheduled_location_id;
-        delete r.is_darwin_cancellation_stop;
-        delete r.darwin_termination_stop;
-        stopTimes.write(r)
+        stopTimes.write({
+          trip_id: r.trip_id,
+          arrival_time: r.arrival_time,
+          departure_time: r.departure_time,
+          stop_id: r.stop_id,
+          stop_sequence: r.stop_sequence,
+          stop_headsign: r.stop_headsign,
+          pickup_type: r.pickup_type,
+          drop_off_type: r.drop_off_type,
+          shape_dist_traveled: r.shape_dist_traveled,
+          timepoint: r.timepoint,
+        });
       });
     }
 

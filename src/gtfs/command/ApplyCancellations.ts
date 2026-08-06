@@ -4,7 +4,7 @@ import {StopTime} from "../file/StopTime";
 import {TrainReinstatement} from "../native/TrainReinstatement";
 import {TrainChangeOfOrigin} from "../native/TrainChangeOfOrigin";
 import {TrainVariationEvent} from "../native/TrainVariationEvent";
-import * as moment from "moment/moment";
+import moment from "moment/moment";
 import {CRS} from "../file/Stop";
 
 /**
