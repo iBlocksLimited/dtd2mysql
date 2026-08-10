@@ -30,7 +30,6 @@ export class WebServerCommand implements CLICommand {
     app.get("", async (req, res) => {
       if (!inProgress) {
         inProgress = true;
-        res.writeProcessing();
         
         let startRange = moment(req.query["start"], "YYYY-MM-DD");
         let endRange = moment(req.query["end"], "YYYY-MM-DD");
@@ -59,9 +58,6 @@ export class WebServerCommand implements CLICommand {
         const archive = archiver("zip", {zlib: {level: 9}});
 
         const passthrough = new stream.PassThrough();
-        passthrough.on("data", () => {
-          res.writeProcessing();
-        });
 
         let s3Params = {
           Bucket: s3BucketName,
@@ -72,7 +68,6 @@ export class WebServerCommand implements CLICommand {
         s3.upload(s3Params, (err, data) => {
           if (err) {
             console.log(err);
-            res.status(500).send(err);
           } else {
             console.log(`Uploaded gtfs file to ${s3BucketName}/${fileName}`);
           }
