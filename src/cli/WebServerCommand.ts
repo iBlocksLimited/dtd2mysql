@@ -4,6 +4,7 @@ import {OutputGTFSCommand} from "./OutputGTFSCommand";
 const express = require("express");
 const archiver = require("archiver");
 const fs = require("fs");
+const fsPromises = fs.promises;
 const path = require("path");
 const stream = require("stream");
 const AWS = require("aws-sdk");
@@ -71,55 +72,19 @@ export class WebServerCommand implements CLICommand {
           await new Promise((resolve, reject) => {
             archive.on("error", reject);
             passthrough.on("error", reject);
-            s3.upload(
-                {
-                  Bucket: s3BucketName,
-                  Key: fileName,
-                  Body: passthrough
-                },
-                (err, data) => {
-                  if (err) {
-                    reject(err);
-                    return;
-                  }
-
-                  console.log(`Uploaded gtfs file to ${s3BucketName}/${fileName}`);
-                  resolve(data);
-                }
-            );
+            s3.upload({
+              Bucket: s3BucketName,
+              Key: fileName,
+              Body: passthrough
+            }).promise().then(resolve, reject);
 
             archive.directory(baseDir, false).pipe(passthrough);
             archive.finalize();
           });
+          console.log(`Uploaded gtfs file to ${s3BucketName}/${fileName}`);
 
-          await new Promise((resolve, reject) => {
-            fs.readdir(baseDir, (err, files) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-
-              let deletionsRemaining = files.length;
-              if (!deletionsRemaining) {
-                resolve(undefined);
-                return;
-              }
-
-              for (const file of files) {
-                fs.unlink(path.join(baseDir, file), unlinkErr => {
-                  if (unlinkErr) {
-                    reject(unlinkErr);
-                    return;
-                  }
-
-                  deletionsRemaining -= 1;
-                  if (!deletionsRemaining) {
-                    resolve(undefined);
-                  }
-                });
-              }
-            });
-          });
+          let files = await fsPromises.readdir(baseDir);
+          await Promise.all(files.map(file => fsPromises.unlink(path.join(baseDir, file))));
 
           res.status(201).send({
             filename: fileName
